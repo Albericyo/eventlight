@@ -1,0 +1,16 @@
+# Exemple de configuration Nginx — adapter root et socket PHP-FPM
+# Inclure dans un server { } avec server_name et ssl_certificate si besoin.
+
+root /var/www/eventflow/public;
+index index.html;
+
+location / {
+    try_files $uri $uri/ /index.html;
+}
+
+location ~ ^/api/ {
+    include snippets/fastcgi-php.conf;
+    fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+    fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+    include fastcgi_params;
+}

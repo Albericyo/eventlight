@@ -1,0 +1,22 @@
+Installation EventFlow (PHP 8.3, MySQL 8, Nginx)
+
+1. Créer une base MySQL vide (ex. eventflow) et un utilisateur avec droits sur cette base.
+
+2. À la racine du projet :
+   composer install
+   cp .env.example .env
+   Éditer .env : DB_DSN, DB_USER, DB_PASS, APP_SECRET.
+
+3. Migrations :
+   bash scripts/migrate.sh
+   (nécessite l’extension PHP mysqli et un serveur MySQL joignable avec les identifiants du .env.)
+
+4. Déploiement web : pointer le document root Nginx vers le dossier public/
+   Voir deploy/nginx-eventflow.conf.example — adapter le socket PHP-FPM (souvent /run/php/php8.3-fpm.sock).
+
+5. Développement local (PHP built-in) :
+   php -S 0.0.0.0:8080 -t public public/router.php
+   Ouvrir http://localhost:8080/
+
+6. Sauvegarde (optionnel) : définir DB_HOST et DB_NAME dans .env puis
+   bash scripts/backup.sh

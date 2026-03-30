@@ -24,7 +24,6 @@
       this.ports = [];
       this._paletteType = 'xlr_f';
       this._svg = null;
-      this._dragIdx = null;
     }
 
     loadFromDevice(dev) {
