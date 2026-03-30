@@ -12,7 +12,7 @@
     selectedSlotId: null,
     /** Vue rack : connecteurs face avant ou face arrière (aligné sur panel-editor). */
     rackFaceView: 'front',
-    /** Mode connexion : appui prolongé sur deux ports pour créer une liaison. */
+    /** Mode connexion : 1er clic sur un port (source), 2e clic sur un autre port (destination). */
     connectionMode: false,
     connectionDraft: null,
   };
@@ -49,6 +49,45 @@
     return { x, y };
   }
 
+  /** Case grille (col,row) occupée par un port — aligné sur portCenterOnPanel / panel-editor. */
+  function portGridCell(p, rw, panelW, ru) {
+    const cols = PANEL_SLOTS_PER_U[rw] != null ? PANEL_SLOTS_PER_U[rw] : PANEL_SLOTS_PER_U.full;
+    const cw = panelW / cols;
+    const ch = PANEL_U_H;
+    if (typeof p.gridCol === 'number' && typeof p.gridRow === 'number') {
+      return {
+        col: Math.max(0, Math.min(cols - 1, Math.floor(p.gridCol))),
+        row: Math.max(0, Math.min(ru - 1, Math.floor(p.gridRow))),
+      };
+    }
+    const x = Number(p.x) || 0;
+    const y = Number(p.y) || 0;
+    return {
+      col: Math.max(0, Math.min(cols - 1, Math.floor(x / cw))),
+      row: Math.max(0, Math.min(ru - 1, Math.floor(y / ch))),
+    };
+  }
+
+  /** Grille + cadre panneau : montre les emplacements vides (cases sans connecteur). */
+  function rackPanelGridSvg(panelW, panelH, rw, ru, occupied) {
+    const cols = PANEL_SLOTS_PER_U[rw] != null ? PANEL_SLOTS_PER_U[rw] : PANEL_SLOTS_PER_U.full;
+    const cw = panelW / cols;
+    const ch = PANEL_U_H;
+    let g = '';
+    g += `<rect class="rack-panel-face" x="0" y="0" width="${panelW}" height="${panelH}" fill="rgba(0,0,0,.2)" stroke="rgba(255,255,255,.12)" stroke-width="1" pointer-events="none"/>`;
+    for (let row = 0; row < ru; row++) {
+      for (let c = 0; c < cols; c++) {
+        const empty = !occupied.has(`${c},${row}`);
+        const fill = empty ? 'rgba(255,255,255,.045)' : 'rgba(0,0,0,.1)';
+        g += `<rect x="${c * cw}" y="${row * ch}" width="${cw}" height="${ch}" fill="${fill}" stroke="rgba(55,60,72,.65)" stroke-width="0.9" stroke-dasharray="3 4" pointer-events="none"/>`;
+      }
+    }
+    for (let u = 1; u < ru; u++) {
+      g += `<line x1="0" x2="${panelW}" y1="${u * PANEL_U_H}" y2="${u * PANEL_U_H}" stroke="rgba(90,96,110,.45)" stroke-width="1" pointer-events="none"/>`;
+    }
+    return g;
+  }
+
   /** Aperçu SVG des ports (face avant ou arrière) pour une ligne du rack. */
   function buildRackFacePreview(slot, face) {
     const key = face === 'rear' ? 'panel_rear_ports' : 'panel_front_ports';
@@ -58,22 +97,33 @@
     const panelW = PANEL_W[rw] || PANEL_W.full;
     const ru = Math.max(1, Math.min(4, Number(slot.rack_u || 1)));
     const panelH = PANEL_U_H * ru;
+    const fv = face === 'rear' ? 'rear' : 'front';
+
+    const occupied = new Set();
+    for (const p of ports) {
+      const { col, row } = portGridCell(p, rw, panelW, ru);
+      occupied.add(`${col},${row}`);
+    }
+    const gridSvg = rackPanelGridSvg(panelW, panelH, rw, ru, occupied);
+
     if (!ports.length) {
-      return `<div class="slot-face-empty slot-face-empty--neutral" title="Face sans connecteur — c’est normal, les équipements peuvent avoir une face vide."></div>`;
+      return `<svg class="rack-slot-face-svg rack-slot-face-svg--with-grid" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="xMidYMid meet">${gridSvg}<text x="${panelW / 2}" y="${panelH / 2}" dominant-baseline="middle" text-anchor="middle" fill="rgba(140,145,160,.92)" pointer-events="none" style="font-family:var(--font),monospace;font-size:12px">Face sans connecteur</text></svg>`;
     }
     if (!PS) {
-      return `<div class="slot-face-empty muted">${ports.length} connecteur(s)</div>`;
+      return `<svg class="rack-slot-face-svg rack-slot-face-svg--with-grid" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="xMidYMid meet">${gridSvg}<text x="${panelW / 2}" y="${panelH / 2}" dominant-baseline="middle" text-anchor="middle" fill="rgba(140,145,160,.88)" pointer-events="none" style="font-family:var(--font),monospace;font-size:11px">${ports.length} connecteur(s)</text></svg>`;
     }
 
+    const colsForPorts = PANEL_SLOTS_PER_U[rw] != null ? PANEL_SLOTS_PER_U[rw] : PANEL_SLOTS_PER_U.full;
+    const cellWForPorts = panelW / colsForPorts;
     let body = '';
     for (const p of ports) {
       const { x, y } = portCenterOnPanel(panelW, rw, ru, p);
       const t = PS.defaultType(p.type || 'xlr_f');
-      const inner = PS.shapeToSvgString(t, p.color || '#5a6a85');
+      const inner = PS.shapeToSvgString(t, p.color || '#5a6a85', cellWForPorts);
       const pid = escAttr(p.id != null ? p.id : '');
       body += `<g class="rack-port-g" transform="translate(${x},${y})" data-slot-id="${slot.id}" data-port-id="${pid}" data-face="${fv}" style="pointer-events:all">${inner}</g>`;
     }
-    return `<svg class="rack-slot-face-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="xMidYMid meet">${body}</svg>`;
+    return `<svg class="rack-slot-face-svg rack-slot-face-svg--with-grid" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="xMidYMid meet">${gridSvg}${body}</svg>`;
   }
 
   const ICONS = {
@@ -127,6 +177,98 @@
       if (s) return { rack: r, slot: s };
     }
     return null;
+  }
+
+  const CABLE_TYPE_FR = {
+    xlr3: 'XLR 3 pts',
+    xlr5: 'XLR 5 pts',
+    rj45: 'RJ45',
+    speakon: 'Speakon',
+    jack: 'Jack 6,35',
+    bnc: 'BNC',
+    dmx: 'DMX',
+    power: 'Alimentation',
+    fiber: 'Fibre',
+    other: 'Autre',
+  };
+  const SIGNAL_TYPE_FR = {
+    audio_analog: 'Audio analogique',
+    audio_digital: 'Audio numérique',
+    dmx: 'DMX / lumière',
+    ethernet: 'Ethernet',
+    power: 'Alimentation',
+    video: 'Vidéo',
+    other: 'Autre',
+  };
+
+  function cableTypeFr(v) {
+    if (v == null || v === '') return '—';
+    return CABLE_TYPE_FR[v] || String(v);
+  }
+
+  function signalTypeFr(v) {
+    if (v == null || v === '') return '—';
+    return SIGNAL_TYPE_FR[v] || String(v);
+  }
+
+  function parsePortLabelsMap(raw) {
+    if (raw == null || raw === '') return {};
+    if (typeof raw === 'object' && raw !== null && !Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const o = JSON.parse(raw);
+        return typeof o === 'object' && o !== null && !Array.isArray(o) ? o : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  }
+
+  function portPatchLabel(portId, slot) {
+    const pl = parsePortLabelsMap(slot?.port_labels);
+    const pid = String(portId ?? '');
+    const friendly = pl[pid];
+    if (friendly) return `${pid} — ${friendly}`;
+    return pid;
+  }
+
+  function cableMetaFieldsHtml(idPrefix) {
+    const sigOpts = Object.keys(SIGNAL_TYPE_FR)
+      .map((k) => `<option value="${escAttr(k)}">${esc(SIGNAL_TYPE_FR[k])}</option>`)
+      .join('');
+    const cabOpts = Object.keys(CABLE_TYPE_FR)
+      .map((k) => `<option value="${escAttr(k)}">${esc(CABLE_TYPE_FR[k])}</option>`)
+      .join('');
+    return `
+            <div class="ef-modal-section-hd field-label" style="margin-top:14px">Câblage terrain</div>
+            <div class="muted" style="font-size:11px;margin-bottom:8px;line-height:1.35">Aide les équipes à savoir quel câble sortir, comment il est repéré (flight case, couleur) et la longueur.</div>
+            <label class="field-label">Type de signal</label>
+            <select class="ef-select" id="${idPrefix}-sig">${sigOpts}</select>
+            <label class="field-label">Type de câble</label>
+            <select class="ef-select" id="${idPrefix}-cab">${cabOpts}</select>
+            <label class="field-label">Longueur (m)</label>
+            <input class="ef-inp" id="${idPrefix}-len" type="text" placeholder="ex. 10 ou 15,5" autocomplete="off" />
+            <label class="field-label">Repère / étiquette du câble</label>
+            <input class="ef-inp" id="${idPrefix}-clab" type="text" placeholder="ex. Fly bleu, case 12…" autocomplete="off" />
+            <label class="field-label">Note pour la pose</label>
+            <textarea class="ef-ta" id="${idPrefix}-note" rows="2" placeholder="Face arrière, chemin goulotte…"></textarea>`;
+  }
+
+  function readCableMetaFromBackdrop(backdrop, idPrefix) {
+    const lenRaw = backdrop.querySelector(`#${idPrefix}-len`)?.value?.trim() || '';
+    let cable_length_m = null;
+    if (lenRaw) {
+      const n = parseFloat(lenRaw.replace(',', '.'));
+      if (Number.isFinite(n)) cable_length_m = n;
+    }
+    return {
+      signal_type: backdrop.querySelector(`#${idPrefix}-sig`)?.value || 'other',
+      cable_type: backdrop.querySelector(`#${idPrefix}-cab`)?.value || 'other',
+      cable_length_m,
+      cable_label: backdrop.querySelector(`#${idPrefix}-clab`)?.value?.trim() || null,
+      notes: backdrop.querySelector(`#${idPrefix}-note`)?.value?.trim() || null,
+    };
   }
 
   /** Modale saisie (remplace prompt). Renvoie la chaîne trimée, ou null si annulation / champ vide. */
@@ -258,6 +400,7 @@
             <select class="ef-select" id="efc-s2">${opts}</select>
             <label class="field-label">ID port destination</label>
             <input class="ef-inp" id="efc-p2" type="text" placeholder="ex. p2" autocomplete="off" />
+            ${cableMetaFieldsHtml('efc-meta')}
           </div>
           <div class="ef-modal-actions">
             <button type="button" class="btn" data-act="cancel">Annuler</button>
@@ -276,6 +419,10 @@
       if (slotsFlat.length >= 2) {
         s2.value = String(slotsFlat[1].id);
       }
+      const ms = backdrop.querySelector('#efc-meta-sig');
+      const mc = backdrop.querySelector('#efc-meta-cab');
+      if (ms) ms.value = 'audio_analog';
+      if (mc) mc.value = 'xlr3';
       const finish = (val) => {
         document.removeEventListener('keydown', onKeyEsc);
         backdrop.remove();
@@ -302,6 +449,7 @@
           src_port_id: pid1,
           dst_slot_id: Number(s2.value),
           dst_port_id: pid2,
+          ...readCableMetaFromBackdrop(backdrop, 'efc-meta'),
         });
       });
       p2.addEventListener('keydown', (e) => {
@@ -311,6 +459,50 @@
         }
       });
       setTimeout(() => p1.focus(), 10);
+    });
+  }
+
+  /** Après avoir choisi deux ports : type de câble, longueur, repères (annulation = null). */
+  function showModalCableDetails(opts) {
+    const { summary = '' } = opts || {};
+    return new Promise((resolve) => {
+      const html = `
+        <div class="ef-modal ef-modal--wide" role="dialog" aria-modal="true">
+          <div class="ef-modal-title">Matériel pour cette liaison</div>
+          ${summary ? `<div class="ef-modal-msg muted" style="white-space:pre-wrap;font-size:12px;line-height:1.4">${esc(summary)}</div>` : ''}
+          <div class="ef-modal-fields">${cableMetaFieldsHtml('efc-d')}</div>
+          <div class="ef-modal-actions">
+            <button type="button" class="btn" data-act="cancel">Annuler</button>
+            <button type="button" class="btn btn-p" data-act="ok">Enregistrer la liaison</button>
+          </div>
+        </div>`;
+      const backdrop = document.createElement('div');
+      backdrop.className = 'ef-modal-backdrop';
+      backdrop.innerHTML = html;
+      document.body.appendChild(backdrop);
+      document.body.style.overflow = 'hidden';
+      const ds = backdrop.querySelector('#efc-d-sig');
+      const dc = backdrop.querySelector('#efc-d-cab');
+      if (ds) ds.value = 'audio_analog';
+      if (dc) dc.value = 'xlr3';
+      const finish = (val) => {
+        document.removeEventListener('keydown', onKeyEsc);
+        backdrop.remove();
+        document.body.style.overflow = '';
+        resolve(val);
+      };
+      const onKeyEsc = (e) => {
+        if (e.key === 'Escape') finish(null);
+      };
+      document.addEventListener('keydown', onKeyEsc);
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) finish(null);
+      });
+      backdrop.querySelector('[data-act="cancel"]').addEventListener('click', () => finish(null));
+      backdrop.querySelector('[data-act="ok"]').addEventListener('click', () => {
+        finish(readCableMetaFromBackdrop(backdrop, 'efc-d'));
+      });
+      setTimeout(() => backdrop.querySelector('#efc-d-sig')?.focus(), 10);
     });
   }
 
@@ -395,7 +587,7 @@
       <div class="sep"></div>
       <button type="button" class="toggle-theme" id="btn-toggle-theme" title="Thème">◐</button>
       <div class="sep"></div>
-      ${u ? `<span class="muted" style="font-size:10px">${esc(u.email)}</span><button type="button" class="btn" id="btn-logout">Déconnexion</button>` : ''}
+      ${u ? `<span class="muted" style="font-size:12px">${esc(u.email)}</span><button type="button" class="btn" id="btn-logout">Déconnexion</button>` : ''}
     </div>
   </header>
   <nav class="nav-rail">${rail}</nav>
@@ -416,6 +608,7 @@
     mount(shellLayout(opts));
     wireNavRail();
     if (state.themeLight) $('#app').classList.add('light');
+    $('#app').classList.remove('rack-conn-mode');
   }
 
   function badgeStatus(st) {
@@ -595,7 +788,7 @@
           return `<div class="rack-slot-r rack-slot-r--split" data-rack-id="${rid}">
             <div class="rack-slot-graphic">
               <div class="slot-num-r">${row.u}</div>
-              <div class="slot-body-r rack-drop-zone" data-drop-u="${row.u}" data-rack-id="${rid}"><span style="font-size:9px;color:#1e2228">— vide —</span></div>
+              <div class="slot-body-r rack-drop-zone" data-drop-u="${row.u}" data-rack-id="${rid}"><span style="font-size:11px;color:#1e2228">— vide —</span></div>
             </div>
             <div class="rack-slot-outside-name rack-slot-outside-name--empty"></div>
           </div>`;
@@ -628,6 +821,74 @@
       .join('');
   }
 
+  /** Deux clics sur les ports : 1er = source, 2e = destination, puis saisie câble / repères (mode connexion). */
+  function wireRackPortConnectionClicks(projectId, racks) {
+    $$('.rack-port-g').forEach((portG) => {
+      portG.addEventListener('click', async (e) => {
+        if (!state.connectionMode) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const pidRaw = portG.getAttribute('data-port-id');
+        if (pidRaw == null || String(pidRaw).trim() === '') {
+          void showModalAlert({
+            title: 'Port',
+            message: 'Ce connecteur n’a pas d’identifiant de port — éditez le modèle dans la bibliothèque (face panel).',
+          });
+          return;
+        }
+        const portId = String(pidRaw);
+        const slotId = portG.getAttribute('data-slot-id');
+        const faceTag = portG.getAttribute('data-face') || 'front';
+        const draft = state.connectionDraft;
+        if (!draft) {
+          state.connectionDraft = { slotId, portId, face: faceTag };
+          portG.classList.add('rack-port-selected');
+          return;
+        }
+        if (String(draft.slotId) === String(slotId) && String(draft.portId) === String(portId)) {
+          $$('.rack-port-g.rack-port-selected').forEach((el) => el.classList.remove('rack-port-selected'));
+          state.connectionDraft = null;
+          return;
+        }
+        const src = draft;
+        const dstSlotId = slotId;
+        const dstPortId = portId;
+        const foundA = findSlotInRacks(racks, src.slotId);
+        const foundB = findSlotInRacks(racks, dstSlotId);
+        const na = foundA
+          ? `${foundA.rack.name} U${foundA.slot.slot_u} — ${foundA.slot.custom_name || foundA.slot.device_name}`
+          : `Slot ${src.slotId}`;
+        const nb = foundB
+          ? `${foundB.rack.name} U${foundB.slot.slot_u} — ${foundB.slot.custom_name || foundB.slot.device_name}`
+          : `Slot ${dstSlotId}`;
+        const pa = portPatchLabel(src.portId, foundA?.slot);
+        const pb = portPatchLabel(dstPortId, foundB?.slot);
+        const summary = `${na}\nport : ${pa}\n↓\n${nb}\nport : ${pb}`;
+        const meta = await showModalCableDetails({ summary });
+        if (!meta) return;
+        $$('.rack-port-g.rack-port-selected').forEach((el) => el.classList.remove('rack-port-selected'));
+        state.connectionDraft = null;
+        try {
+          await api.post('/api/ef/connections', {
+            project_id: Number(projectId),
+            src_slot_id: Number(src.slotId),
+            src_port_id: String(src.portId),
+            dst_slot_id: Number(dstSlotId),
+            dst_port_id: String(dstPortId),
+            signal_type: meta.signal_type,
+            cable_type: meta.cable_type,
+            cable_length_m: meta.cable_length_m,
+            cable_label: meta.cable_label,
+            notes: meta.notes,
+          });
+          viewProjectRack(projectId);
+        } catch (err) {
+          await showModalAlert({ title: 'Connexion impossible', message: err.message || 'Erreur' });
+        }
+      });
+    });
+  }
+
   async function viewProjectRack(projectId) {
     if (!state.user) {
       nav('#/login');
@@ -650,7 +911,8 @@
     const rackId = state.selectedRackId && racks.find((r) => String(r.id) === String(state.selectedRackId)) ? state.selectedRackId : racks[0]?.id;
     state.selectedRackId = rackId;
     const rack = racks.find((r) => String(r.id) === String(rackId)) || racks[0];
-    const slots = rack ? rack.slots || [] : [];
+    const rackSlots = rack ? rack.slots || [] : [];
+    const allSlots = racks.flatMap((r) => r.slots || []);
     const devices = await api.get('/api/ef/devices');
     const byCat = {};
     for (const d of devices) {
@@ -661,25 +923,44 @@
     const lib = Object.keys(byCat)
       .sort()
       .map((cat) => {
-        const head = `<div style="padding:4px 8px 1px;font-size:8px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:4px">${esc(cat)}</div>`;
+        const head = `<div style="padding:4px 8px 1px;font-size:12px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-top:4px">${esc(cat)}</div>`;
         const items = byCat[cat]
           .map(
             (d) =>
-              `<div class="lib-item" draggable="true" data-did="${d.id}" title="Glisser-déposer sur une ligne U vide"><div class="li-name">${esc(d.name)}</div><div class="li-meta"><span class="badge bd-green" style="font-size:8px">${d.rack_u}U</span><span class="badge bd-blue" style="font-size:8px">${esc(d.rack_width)}</span></div></div>`
+              `<div class="lib-item" draggable="true" data-did="${d.id}" title="Glisser-déposer sur une ligne U vide"><div class="li-name">${esc(d.name)}</div><div class="li-meta"><span class="badge bd-green" style="font-size:12px">${d.rack_u}U</span><span class="badge bd-blue" style="font-size:12px">${esc(d.rack_width)}</span></div></div>`
           )
           .join('');
         return head + items;
       })
       .join('');
 
-    const usedU = slots.reduce((s, sl) => s + Number(sl.rack_u || 1), 0);
-    const totalW = slots.reduce((s, sl) => s + Number(sl.power_w || 0), 0);
+    const usedU = allSlots.reduce((s, sl) => s + Number(sl.rack_u || 1), 0);
+    const totalW = allSlots.reduce((s, sl) => s + Number(sl.power_w || 0), 0);
+    const usedInRack = rackSlots.reduce((s, sl) => s + Number(sl.rack_u || 1), 0);
     const faceV = state.rackFaceView === 'rear' ? 'rear' : 'front';
-    const rackHtml = rack
-      ? rackRowsVisual(rack, slots, faceV)
-      : '<p class="muted">Aucun rack — ajoutez-en un.</p>';
+    const connMode = state.connectionMode;
+    let rackHtmlInner = '';
+    if (racks.length === 0) {
+      rackHtmlInner = '<p class="muted">Aucun rack — ajoutez-en un.</p>';
+    } else {
+      rackHtmlInner = racks
+        .map(
+          (r) =>
+            `<section class="rack-section" data-rack-id="${r.id}">
+          <div class="rack-section-head">
+            <span class="rack-section-title">${esc(r.name)}</span>
+            <span class="rack-section-meta muted">${r.size_u}U · ${(r.slots || []).length} équip.</span>
+          </div>
+          <div class="rack-vis rack-vis--stacked">${rackRowsVisual(r, r.slots || [], faceV)}</div>
+        </section>`
+        )
+        .join('');
+    }
+    const rackHtml = `<div class="all-racks-stack">${rackHtmlInner}</div>`;
 
-    const selSlot = state.selectedSlotId ? slots.find((s) => String(s.id) === String(state.selectedSlotId)) : slots[0];
+    const selSlot = state.selectedSlotId
+      ? allSlots.find((s) => String(s.id) === String(state.selectedSlotId))
+      : allSlots[0];
     state.selectedSlotId = selSlot?.id;
     const col = selSlot ? CAT_COL[selSlot.category] || '#f74f4f' : '#444';
     const detail = selSlot
@@ -695,15 +976,15 @@
             <button type="button" class="btn" id="btn-slots-rack" style="color:var(--red);border-color:var(--red)">Slots détail</button>
           </div>
         </div>`
-      : '<div class="detail-area muted">Sélectionnez un slot dans le rack (clic sur une ligne U).</div>';
+      : '<div class="detail-area muted">Sélectionnez un slot (clic sur une ligne U).</div>';
 
     mountShell({
       breadcrumb: `<a href="#/projects">Dashboard</a> / <span class="muted">${esc(data.name)}</span> / <b>Rack builder</b>`,
       main: `<div class="view-pad">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <div>
-            <div style="font-family:var(--display);font-size:15px;font-weight:700">${esc(data.name)}</div>
-            <div class="muted" style="margin-top:2px">${rack ? esc(rack.name) : '—'} · ${rack ? rack.size_u + 'U' : ''} · <span style="color:var(--accent)">${usedU}U utilisés</span></div>
+            <div style="font-family:var(--display);font-size:17px;font-weight:700">${esc(data.name)}</div>
+            <div class="muted" style="margin-top:2px">${racks.length} rack(s) · <span style="color:var(--accent)">${usedU}U utilisés</span> · ${totalW}W</div>
           </div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             ${racks.map((r) => `<button type="button" class="btn ${String(r.id) === String(rackId) ? '' : ''}" data-sel-rack="${r.id}" style="${String(r.id) === String(rackId) ? 'border-color:var(--accent);color:var(--accent)' : ''}">${esc(r.name)}</button>`).join('')}
@@ -715,7 +996,7 @@
         <div class="rb-layout">
           <div class="rb-lib">
             <div class="rb-section">Bibliothèque</div>
-            <div style="padding:6px 8px;border-bottom:1px solid var(--border)"><input class="ef-inp" placeholder="Rechercher…" id="lib-search" style="font-size:10px" /></div>
+            <div style="padding:6px 8px;border-bottom:1px solid var(--border)"><input class="ef-inp" placeholder="Rechercher…" id="lib-search" style="font-size:12px" /></div>
             ${lib}
           </div>
           <div class="rb-main">
@@ -728,9 +1009,13 @@
               <button type="button" class="btn rack-face-btn${faceV === 'front' ? ' rack-face-active' : ''}" data-rack-face="front">Face avant</button>
               <button type="button" class="btn rack-face-btn${faceV === 'rear' ? ' rack-face-active' : ''}" data-rack-face="rear">Face arrière</button>
             </div>` : ''}
-            <div class="rack-vis">${rackHtml}</div>
-            <div class="muted" style="font-size:9px;margin-top:6px;max-width:520px;line-height:1.35">Déplacer : glisser une ligne d’équipement vers une ligne <strong>vide</strong> (même hauteur U requise). Ajouter : glisser depuis la bibliothèque. Le nom est affiché à droite du schéma.</div>
-            <div class="muted"><span style="color:var(--text);font-weight:500">${usedU}</span>/${rack ? rack.size_u : 0}U · <span style="color:var(--text);font-weight:500">${totalW}W</span></div>
+            ${racks.length ? `<div class="rack-toolbar-extra" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%;max-width:520px">
+              <button type="button" class="btn${connMode ? ' btn-p' : ''}" id="btn-conn-mode">Mode connexion</button>
+              <span class="muted" style="font-size:11px;line-height:1.2">${connMode ? 'Cliquez sur un port source puis sur un port destination : une fenêtre permet d’indiquer le type de câble, la longueur et les repères (voir aussi la Patch list).' : ''}</span>
+            </div>` : ''}
+            ${rackHtml}
+            <div class="muted" style="font-size:11px;margin-top:6px;max-width:520px;line-height:1.35">Déplacer : glisser une ligne vers une ligne <strong>vide</strong> du <strong>même rack</strong> (même hauteur U requise). Ajouter : glisser depuis la bibliothèque. Le nom est affiché à droite du schéma.</div>
+            <div class="muted"><span style="color:var(--text);font-weight:500">${usedU}</span> U équipés (projet) · <span style="color:var(--text);font-weight:500">${totalW}W</span>${rack ? ` · <span style="color:var(--muted)">Rack sélectionné « ${esc(rack.name)} » : ${usedInRack}/${rack.size_u}U</span>` : ''}</div>
           </div>
           <div class="rb-panel">
             <div class="rb-panel-tabs">
@@ -745,6 +1030,8 @@
       projectId,
     });
     wireNavRail();
+    $('#app').classList.toggle('rack-conn-mode', state.connectionMode);
+    wireRackPortConnectionClicks(projectId, racks);
 
     $$('[data-sel-rack]').forEach((b) =>
       b.addEventListener('click', () => {
@@ -759,6 +1046,11 @@
         viewProjectRack(projectId);
       })
     );
+    $('#btn-conn-mode')?.addEventListener('click', () => {
+      state.connectionMode = !state.connectionMode;
+      state.connectionDraft = null;
+      viewProjectRack(projectId);
+    });
     $$('.rack-slot-row[data-slot-id]').forEach((el) => {
       let didDrag = false;
       el.addEventListener('dragstart', (e) => {
@@ -837,7 +1129,10 @@
       zone.addEventListener('drop', async (e) => {
         e.preventDefault();
         zone.classList.remove('rack-drop-hover');
-        if (!rack) return;
+        const targetRackId = zone.getAttribute('data-rack-id');
+        const targetRack = racks.find((r) => String(r.id) === String(targetRackId));
+        if (!targetRack) return;
+        const slots = targetRack.slots || [];
         let raw = e.dataTransfer.getData('application/json');
         if (!raw) raw = e.dataTransfer.getData('text/plain');
         let payload;
@@ -847,7 +1142,7 @@
           return;
         }
         const u = Number(zone.getAttribute('data-drop-u'));
-        const sizeU = Number(rack.size_u || 12);
+        const sizeU = Number(targetRack.size_u || 12);
         if (!u || u < 1 || u > sizeU) return;
 
         if (payload.type === 'template') {
@@ -870,7 +1165,7 @@
           }
           try {
             await api.post('/api/ef/slots', {
-              rack_id: rack.id,
+              rack_id: targetRack.id,
               device_template_id: payload.deviceId,
               slot_u: u,
               slot_col: 0,
@@ -883,8 +1178,16 @@
           return;
         }
         if (payload.type === 'slot') {
-          const slot = slots.find((s) => String(s.id) === String(payload.slotId));
-          if (!slot) return;
+          const found = findSlotInRacks(racks, payload.slotId);
+          if (!found) return;
+          const { rack: srcRack, slot } = found;
+          if (String(srcRack.id) !== String(targetRack.id)) {
+            await showModalAlert({
+              title: 'Déplacement impossible',
+              message: 'Un équipement ne peut pas être déplacé vers un autre rack depuis cette vue (le rack du slot ne change pas).',
+            });
+            return;
+          }
           const h = Math.max(1, Number(slot.rack_u || 1));
           if (u + h - 1 > sizeU) {
             await showModalAlert({
@@ -1022,6 +1325,30 @@
     let sigFilter = '';
     let orphanMode = false;
 
+    const slotById = {};
+    for (const r of data.racks || []) {
+      for (const s of r.slots || []) slotById[s.id] = s;
+    }
+
+    function patchEndLabel(c, side) {
+      const isSrc = side === 'src';
+      const sid = c[isSrc ? 'src_slot_id' : 'dst_slot_id'];
+      const rackN = c[isSrc ? 'src_rack_name' : 'dst_rack_name'] || '';
+      const u = c[isSrc ? 'src_slot_u' : 'dst_slot_u'];
+      const devName = c[isSrc ? 'src_device_name' : 'dst_device_name'] || '';
+      const custom =
+        c[isSrc ? 'src_custom_name' : 'dst_custom_name'] ||
+        c[isSrc ? 'src_slot_custom' : 'dst_slot_custom'] ||
+        '';
+      const portId = c[isSrc ? 'src_port_id' : 'dst_port_id'];
+      const slot = slotById[sid];
+      const uDisp = u != null && u !== '' ? u : slot?.slot_u ?? '—';
+      const devDisp = (slot?.custom_name || custom || devName || '').trim();
+      const portDisp = portPatchLabel(portId, slot);
+      const rackDisp = rackN || (slot ? (data.racks || []).find((x) => String(x.id) === String(slot.rack_id))?.name : '') || '—';
+      return { where: `${rackDisp} · U${uDisp}`, dev: devDisp, port: portDisp };
+    }
+
     function sigColor(sig) {
       if (sig === 'dmx' || sig === 'audio_digital') return '#7c4dff';
       if (sig === 'ethernet') return '#4f8ef7';
@@ -1038,14 +1365,30 @@
           const num = String(i + 1).padStart(3, '0');
           const sig = c.signal_type || '';
           const col = sigColor(sig);
+          const src = patchEndLabel(c, 'src');
+          const dst = patchEndLabel(c, 'dst');
+          const cableBits = [cableTypeFr(c.cable_type)];
+          if (c.cable_label) cableBits.push(`« ${c.cable_label} »`);
+          const cableCell = cableBits.join(' ');
+          const lenDisp = c.cable_length_m != null && c.cable_length_m !== '' ? `${c.cable_length_m} m` : '—';
+          const noteDisp = String(c.notes || '').trim();
+          const noteShort = noteDisp.length > 100 ? `${noteDisp.slice(0, 97)}…` : noteDisp;
           return `<div class="pt-row">
             <div class="pt-num">${num}</div>
-            <div><div class="pt-device">${esc(c.src_device_name || '')}</div><div class="pt-port"><b>${esc(c.src_port_id)}</b></div></div>
-            <div><div class="pt-device">${esc(c.dst_device_name || '')}</div><div class="pt-port"><b>${esc(c.dst_port_id)}</b></div></div>
-            <div><span class="sig-dot" style="background:${col}"></span><span style="font-size:10px;color:var(--muted)">${esc(sig)}</span></div>
-            <div><span class="cable-pill" style="background:#1e1a3a;color:var(--accent2);font-size:9px">${esc(c.cable_type || '')}</span></div>
-            <div style="font-size:10px;color:var(--muted)">${c.cable_length_m ?? '—'}</div>
-            <div class="muted">⋯</div>
+            <div class="pt-cell-stack">
+              <div class="pt-loc">${esc(src.where)}</div>
+              <div class="pt-device">${esc(src.dev)}</div>
+              <div class="pt-port"><b>${esc(src.port)}</b></div>
+            </div>
+            <div class="pt-cell-stack">
+              <div class="pt-loc">${esc(dst.where)}</div>
+              <div class="pt-device">${esc(dst.dev)}</div>
+              <div class="pt-port"><b>${esc(dst.port)}</b></div>
+            </div>
+            <div class="pt-sig-cell"><span class="sig-dot" style="background:${col}"></span><span class="pt-sig">${esc(signalTypeFr(sig))}</span></div>
+            <div class="pt-cable">${esc(cableCell)}</div>
+            <div class="pt-len">${esc(lenDisp)}</div>
+            <div class="pt-note muted"${noteDisp ? ` title="${esc(noteDisp)}"` : ''}>${noteShort ? esc(noteShort) : '—'}</div>
           </div>`;
         })
         .join('');
@@ -1056,8 +1399,9 @@
       main: `<div class="view-pad">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <div>
-            <div style="font-family:var(--display);font-size:15px;font-weight:700">Patch list</div>
-            <div class="muted" style="margin-top:2px">${rows.length} connexion(s)</div>
+            <div style="font-family:var(--display);font-size:17px;font-weight:700">Patch list</div>
+            <div class="muted patch-lede" style="margin-top:6px;max-width:720px;line-height:1.45">Chaque ligne décrit une liaison réelle : rack et unité, équipement, connecteur (et libellé métier si renseigné), type de signal, matériel à sortir, repère du câble et notes de pose. À utiliser sur site ou pour préparer les volières / flights.</div>
+            <div class="muted" style="margin-top:6px">${rows.length} connexion(s)</div>
           </div>
           <div style="display:flex;gap:8px">
             <button type="button" class="btn" id="btn-add-conn">+ Connexion</button>
@@ -1066,7 +1410,7 @@
         </div>
         <div class="patch-layout">
           <div class="patch-filters">
-            <span class="muted" style="font-size:10px">Filtres :</span>
+            <span class="muted" style="font-size:12px">Filtres :</span>
             <button type="button" class="filter-btn active" data-flt="">Tout</button>
             <button type="button" class="filter-btn" data-flt="audio_analog">Son</button>
             <button type="button" class="filter-btn" data-flt="dmx">Lumière</button>
@@ -1076,12 +1420,17 @@
           </div>
           <div class="patch-table">
             <div class="pt-head">
-              <div class="pt-col">#</div><div class="pt-col">Source</div><div class="pt-col">Destination</div>
-              <div class="pt-col">Signal</div><div class="pt-col">Câble</div><div class="pt-col">Long.</div><div class="pt-col"></div>
+              <div class="pt-col">#</div>
+              <div class="pt-col">Départ (où / quoi)</div>
+              <div class="pt-col">Arrivée (où / quoi)</div>
+              <div class="pt-col">Signal</div>
+              <div class="pt-col">Câble & repère</div>
+              <div class="pt-col">Long.</div>
+              <div class="pt-col">Note</div>
             </div>
             <div id="patch-rows"></div>
           </div>
-          <pre id="orphan-pre" class="muted" style="font-size:10px;white-space:pre-wrap;display:none"></pre>
+          <pre id="orphan-pre" class="muted" style="font-size:12px;white-space:pre-wrap;display:none"></pre>
         </div>
       </div>`,
       navActive: 3,
@@ -1141,8 +1490,11 @@
         src_port_id: conn.src_port_id,
         dst_slot_id: conn.dst_slot_id,
         dst_port_id: conn.dst_port_id,
-        signal_type: 'audio_analog',
-        cable_type: 'xlr3',
+        signal_type: conn.signal_type,
+        cable_type: conn.cable_type,
+        cable_length_m: conn.cable_length_m,
+        cable_label: conn.cable_label,
+        notes: conn.notes,
       });
       await reload();
     });
@@ -1155,10 +1507,10 @@
       main: `<div class="view-pad">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
           <div>
-            <div style="font-family:var(--display);font-size:15px;font-weight:700">Export fiche technique</div>
+            <div style="font-family:var(--display);font-size:17px;font-weight:700">Export fiche technique</div>
             <div class="muted" style="margin-top:2px">${esc(data.name)}</div>
           </div>
-          <button type="button" class="btn btn-p" id="btn-gen-pdf" style="font-size:12px;padding:8px 18px">Générer PDF</button>
+          <button type="button" class="btn btn-p" id="btn-gen-pdf" style="font-size:14px;padding:8px 18px">Générer PDF</button>
         </div>
         <div class="export-layout">
           <div class="export-config">
@@ -1182,7 +1534,7 @@
             <div class="preview-header"><span>Aperçu</span><span style="color:var(--accent)">jsPDF</span></div>
             <div class="pdf-preview"><div class="pdf-page">
               <div class="pdf-hd"><div><div class="pdf-title">${esc(data.name)}</div><div class="pdf-sub">EventFlow · Event'Light</div></div></div>
-              <div class="muted" style="font-size:9px">Résumé des modules cochés exportés dans le PDF.</div>
+              <div class="muted" style="font-size:11px">Résumé des modules cochés exportés dans le PDF.</div>
             </div></div>
           </div>
         </div>
@@ -1285,10 +1637,10 @@
       .map(
         (d) =>
           `<tr style="cursor:pointer;border-bottom:1px solid var(--border)" data-did="${d.id}">
-            <td style="padding:8px;font-size:11px;font-weight:500">${esc(d.name)}</td>
-            <td style="padding:8px;font-size:10px;color:var(--muted)">${esc(d.manufacturer || '')}</td>
+            <td style="padding:8px;font-size:13px;font-weight:500">${esc(d.name)}</td>
+            <td style="padding:8px;font-size:12px;color:var(--muted)">${esc(d.manufacturer || '')}</td>
             <td style="padding:8px">${esc(d.category)}</td><td style="padding:8px">${d.rack_u}U</td>
-            <td style="padding:8px;font-size:10px">${d.is_public ? 'public' : 'perso'}</td>
+            <td style="padding:8px;font-size:12px">${d.is_public ? 'public' : 'perso'}</td>
           </tr>`
       )
       .join('');
@@ -1326,7 +1678,7 @@
       main: `<div class="view-pad">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
           <div>
-            <div style="font-family:var(--display);font-size:15px;font-weight:700">Éditeur face panel</div>
+            <div style="font-family:var(--display);font-size:17px;font-weight:700">Éditeur face panel</div>
             <div class="muted">${esc(d.name)} · ${d.rack_u}U ${esc(d.rack_width)}</div>
           </div>
           <div style="display:flex;gap:8px">
@@ -1362,7 +1714,7 @@
             <div id="edit-rear"></div>
             <button type="button" class="btn btn-p" id="btn-save-rear">Enregistrer face arrière</button>
           </div>
-          <div class="export-config"><div class="ec-title">Aide</div><p class="muted" style="font-size:10px">Clic sur une case vide pour placer · <strong>double-clic</strong> sur un connecteur pour le supprimer · ou <strong>Alt + clic</strong> si le double-clic ne marche pas · glisser pour déplacer. Faces pouvant rester vides — enregistrez chaque face.</p></div>
+          <div class="export-config"><div class="ec-title">Aide</div><p class="muted" style="font-size:12px">Clic sur une case vide pour placer · <strong>double-clic</strong> sur un connecteur pour le supprimer · ou <strong>Alt + clic</strong> si le double-clic ne marche pas · glisser pour déplacer. Faces pouvant rester vides — enregistrez chaque face.</p></div>
         </div>
       </div>`,
       navActive: 2,
@@ -1409,6 +1761,108 @@
     });
   }
 
+  /** Pour PDF : index slotId|portId -> lignes de liaison patch. */
+  function buildPdfConnBySlotPort(connections) {
+    const m = Object.create(null);
+    function add(sid, pid, text) {
+      const k = `${String(sid)}|${String(pid)}`;
+      if (!m[k]) m[k] = [];
+      m[k].push(text);
+    }
+    for (const c of connections || []) {
+      const len =
+        c.cable_length_m != null && c.cable_length_m !== '' ? ` ${String(c.cable_length_m)}m` : '';
+      const ct = cableTypeFr(c.cable_type);
+      const cpart = ct && ct !== '—' ? `, ${ct}` : '';
+      const lbl = c.cable_label ? `, ${String(c.cable_label)}` : '';
+      add(
+        c.src_slot_id,
+        c.src_port_id,
+        `-> ${c.dst_rack_name || '?'} U${c.dst_slot_u} ${c.dst_device_name || ''} [${c.dst_label_display || c.dst_port_id}]${cpart}${len}${lbl}`
+      );
+      add(
+        c.dst_slot_id,
+        c.dst_port_id,
+        `<- ${c.src_rack_name || '?'} U${c.src_slot_u} ${c.src_device_name || ''} [${c.src_label_display || c.src_port_id}]${cpart}${len}${lbl}`
+      );
+    }
+    return m;
+  }
+
+  function pdfPortCaptionLine(slot, p, faceLabel) {
+    const id = p.id != null ? String(p.id) : '';
+    const pl = parsePortLabelsMap(slot.port_labels);
+    const biz = pl[id] ? String(pl[id]) : '';
+    const typ = p.type ? String(p.type) : '';
+    const bits = [id || '?'];
+    if (typ) bits.push(`type ${typ}`);
+    if (biz) bits.push(`libelle: ${biz}`);
+    bits.push(`(${faceLabel})`);
+    return bits.join(' | ');
+  }
+
+  /** Hauteur mm consommée par une liste de lignes après decoupe a la largeur colW. */
+  function pdfWrappedBlockHeight(doc, lines, colW, lineH) {
+    let h = 0;
+    for (const raw of lines) {
+      const s = raw == null ? '' : String(raw);
+      const parts = doc.splitTextToSize(s, colW);
+      h += Math.max(1, parts.length) * lineH;
+    }
+    return h;
+  }
+
+  /** Ecrit des lignes avec retour a la ligne, retourne y apres le bloc. */
+  function pdfEmitWrappedLines(doc, lines, x, y, colW, lineH, pageBreak) {
+    for (const raw of lines) {
+      const s = raw == null ? '' : String(raw);
+      const parts = doc.splitTextToSize(s, colW);
+      for (const p of parts) {
+        if (y > 272) {
+          pageBreak();
+          y = 20;
+        }
+        doc.text(p, x, y);
+        y += lineH;
+      }
+    }
+    return y;
+  }
+
+  /** Lignes texte pour un slot (une colonne PDF). */
+  function pdfLinesForSlot(s, connByPort) {
+    const out = [];
+    const h = Math.max(1, Number(s.rack_u || 1));
+    const uHi = Number(s.slot_u) + h - 1;
+    const uLab = h > 1 ? `U${s.slot_u}-U${uHi} (${h}U)` : `U${s.slot_u}`;
+    const dev = (s.custom_name || s.device_name || '').trim();
+    const mod =
+      s.device_name && s.custom_name && s.custom_name !== s.device_name ? ` modele: ${s.device_name}` : '';
+    const pwr = s.power_w ? ` ${s.power_w}W` : '';
+    out.push(`-- ${uLab} ${dev}${mod}${pwr} | ${s.category || ''}`);
+    const faces = [
+      { label: 'avant', raw: s.panel_front_ports },
+      { label: 'arriere', raw: s.panel_rear_ports },
+    ];
+    for (const { label, raw } of faces) {
+      out.push(`  Face ${label}:`);
+      const ports = parsePanelPorts(raw);
+      if (!ports.length) {
+        out.push('    (pas de connecteur)');
+        continue;
+      }
+      for (const p of ports) {
+        const cap = pdfPortCaptionLine(s, p, label);
+        out.push(`    * ${cap}`);
+        const k = `${String(s.id)}|${String(p.id)}`;
+        for (const lk of connByPort[k] || []) {
+          out.push(`       ${lk}`);
+        }
+      }
+    }
+    return out;
+  }
+
   async function buildPdf(exp, mods, theme) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -1437,20 +1891,82 @@
         doc.rect(0, 0, 210, 297, 'F');
         doc.setTextColor(...tx);
       }
-      line('Plans racks', 20, y);
-      y += 10;
-      for (const r of exp.racks || []) {
-        line(`${r.name} — ${r.size_u}U`, 20, y);
-        y += 7;
-        for (const s of r.slots || []) {
-          line(`  U${s.slot_u} ${s.device_name}`, 22, y);
-          y += 6;
-          if (y > 270) {
-            doc.addPage();
-            y = 20;
-          }
+      const connByPort = buildPdfConnBySlotPort(exp.connections);
+      const ensureRackPage = () => {
+        if (y <= 272) return;
+        doc.addPage();
+        y = 20;
+        if (theme === 'dark') {
+          doc.setFillColor(...fg);
+          doc.rect(0, 0, 210, 297, 'F');
+          doc.setTextColor(...tx);
         }
+      };
+      doc.setFontSize(11);
+      line('Plans racks — schema U, ports et liaisons', 20, y);
+      y += 6;
+      doc.setFontSize(8.5);
+      line(
+        'Ordre des U: du haut vers le bas du projet (grand U en tete). U1 souvent en bas physique. Ports: id, type, libelle projet (port_labels). Liaisons issues du patch.',
+        20,
+        y
+      );
+      y += 8;
+      doc.setFontSize(10);
+      for (const r of exp.racks || []) {
+        ensureRackPage();
+        line(`=== ${r.name} — ${r.size_u}U ===`, 20, y);
+        y += 6;
+        const slots = [...(r.slots || [])].sort((a, b) => Number(b.slot_u) - Number(a.slot_u));
+        if (!slots.length) {
+          line('  (aucun equipement)', 22, y);
+          y += 6;
+        }
+        for (const s of slots) {
+          ensureRackPage();
+          const h = Math.max(1, Number(s.rack_u || 1));
+          const uHi = Number(s.slot_u) + h - 1;
+          const uLab = h > 1 ? `U${s.slot_u}-U${uHi} (${h}U)` : `U${s.slot_u}`;
+          const dev = (s.custom_name || s.device_name || '').trim();
+          const mod = s.device_name && s.custom_name && s.custom_name !== s.device_name ? ` modele: ${s.device_name}` : '';
+          const pwr = s.power_w ? ` ${s.power_w}W` : '';
+          line(`-- ${uLab} ${dev}${mod}${pwr} | ${s.category || ''}`, 20, y);
+          y += 5;
+          const faces = [
+            { label: 'avant', raw: s.panel_front_ports },
+            { label: 'arriere', raw: s.panel_rear_ports },
+          ];
+          for (const { label, raw } of faces) {
+            ensureRackPage();
+            line(`  Face ${label}:`, 22, y);
+            y += 4.5;
+            const ports = parsePanelPorts(raw);
+            if (!ports.length) {
+              line('    (pas de connecteur sur ce gabarit)', 24, y);
+              y += 4.5;
+              continue;
+            }
+            for (const p of ports) {
+              ensureRackPage();
+              const cap = pdfPortCaptionLine(s, p, label);
+              const capTrim = cap.length > 105 ? `${cap.slice(0, 102)}...` : cap;
+              line(`    * ${capTrim}`, 24, y);
+              y += 4;
+              const k = `${String(s.id)}|${String(p.id)}`;
+              const links = connByPort[k] || [];
+              for (const lk of links) {
+                ensureRackPage();
+                const t = lk.length > 100 ? `${lk.slice(0, 97)}...` : lk;
+                line(`       ${t}`, 26, y);
+                y += 4;
+              }
+            }
+          }
+          y += 3;
+        }
+        y += 4;
       }
+      doc.setFontSize(10);
     }
     if (mods.patch) {
       doc.addPage();
@@ -1460,13 +1976,37 @@
         doc.rect(0, 0, 210, 297, 'F');
         doc.setTextColor(...tx);
       }
-      line('Patch list', 20, y);
+      line('Patch list — câblage', 20, y);
+      y += 8;
+      line('Rack, U, equipement, connecteur, signal, cable, repere, note.', 20, y);
       y += 10;
       for (const c of exp.connections || []) {
-        const t = `${c.src_device_name} [${c.src_port_id}] → ${c.dst_device_name} [${c.dst_port_id}]`;
-        line(t.substring(0, 95), 20, y);
-        y += 6;
-        if (y > 280) {
+        const srcR = c.src_rack_name || '';
+        const dstR = c.dst_rack_name || '';
+        const su = c.src_slot_u != null ? c.src_slot_u : '?';
+        const du = c.dst_slot_u != null ? c.dst_slot_u : '?';
+        const sl = c.src_label_display || c.src_port_id;
+        const dl = c.dst_label_display || c.dst_port_id;
+        const cab = [cableTypeFr(c.cable_type)]
+          .concat(
+            c.cable_length_m != null && c.cable_length_m !== '' ? `${c.cable_length_m} m` : null,
+            c.cable_label ? String(c.cable_label) : null
+          )
+          .filter(Boolean)
+          .join(' — ');
+        const t1 = `[${su}] ${srcR} / ${c.src_device_name || ''}  ·  ${sl}  -->  [${du}] ${dstR} / ${c.dst_device_name || ''}  ·  ${dl}`;
+        line(String(t1).substring(0, 98), 20, y);
+        y += 5;
+        if (cab) {
+          line(`    Cable: ${cab.substring(0, 90)}`, 22, y);
+          y += 5;
+        }
+        if (c.notes) {
+          line(`    Note: ${String(c.notes).substring(0, 88)}`, 22, y);
+          y += 5;
+        }
+        y += 2;
+        if (y > 278) {
           doc.addPage();
           y = 20;
         }

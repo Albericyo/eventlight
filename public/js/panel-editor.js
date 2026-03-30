@@ -123,6 +123,8 @@
       }
       const w = WIDTH[this.rackWidth] || WIDTH.full;
       const h = U_H * this.rackU;
+      const cols = this._cols();
+      const cw = w / cols;
       let body = '';
       for (const p of this.ports) {
         const gc = typeof p.gridCol === 'number' ? p.gridCol : this._cellFromXY(p.x ?? 0, p.y ?? 0).col;
@@ -130,7 +132,7 @@
         const { x, y } = this._cellCenter(gc, gr);
         const t = PS.defaultType(p.type || 'xlr_f');
         const col = p.color || '#5a6a85';
-        const inner = PS.shapeToSvgString(t, col);
+        const inner = PS.shapeToSvgString(t, col, cw);
         body += `<g transform="translate(${x},${y})">${inner}</g>`;
       }
       return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">${body}</svg>`;
@@ -200,7 +202,7 @@
       const gridHint = document.createElement('span');
       gridHint.className = 'muted';
       gridHint.style.marginLeft = '10px';
-      gridHint.style.fontSize = '10px';
+      gridHint.style.fontSize = '12px';
       gridHint.textContent =
         '· Grille : ' + cols + ' × ' + this.rackU + 'U max (' + this._maxPorts() + ' prises) · 19" full = 10 / ligne';
       pal.appendChild(gridHint);
@@ -260,7 +262,7 @@
 
         if (PS) {
           const t = PS.defaultType(p.type || 'xlr_f');
-          PS.appendShapeToGroup(g, t, p.color);
+          PS.appendShapeToGroup(g, t, p.color, cw);
         } else {
           const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
           c.setAttribute('r', String(p.radius || 8));
@@ -363,7 +365,7 @@
       wrap.appendChild(svg);
       const hint = document.createElement('p');
       hint.className = 'muted';
-      hint.style.fontSize = '10px';
+      hint.style.fontSize = '12px';
       hint.style.marginTop = '8px';
       hint.innerHTML =
         'Clic sur une case vide = ajouter · <strong>double-clic</strong> sur un connecteur = supprimer · ou <strong>Alt + clic</strong> pour supprimer · glisser pour déplacer (échange si occupé). Grille 19". Face vide possible — enregistrez pour sauver.';

@@ -296,6 +296,7 @@ final class ProjectHandler
     {
         $sql = 'SELECT c.*,
                 ri1.name AS src_rack_name, ri2.name AS dst_rack_name,
+                s1.slot_u AS src_slot_u, s2.slot_u AS dst_slot_u,
                 s1.rack_id AS src_rack_id, s1.custom_name AS src_custom_name, s1.device_template_id AS src_device_template_id,
                 s2.rack_id AS dst_rack_id, s2.custom_name AS dst_custom_name, s2.device_template_id AS dst_device_template_id,
                 d1.name AS src_device_name, d2.name AS dst_device_name

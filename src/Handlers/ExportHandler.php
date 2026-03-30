@@ -59,6 +59,8 @@ final class ExportHandler
 
         $st = $pdo->prepare(
             'SELECT c.*,
+             ri1.name AS src_rack_name, ri2.name AS dst_rack_name,
+             s1.slot_u AS src_slot_u, s2.slot_u AS dst_slot_u,
              s1.rack_id AS src_rack_id, s1.custom_name AS src_custom_name, s1.port_labels AS src_port_labels,
              s2.rack_id AS dst_rack_id, s2.custom_name AS dst_custom_name, s2.port_labels AS dst_port_labels,
              d1.name AS src_device_name, d1.panel_front_ports AS src_panel_fp, d1.panel_rear_ports AS src_panel_rp,
@@ -66,6 +68,8 @@ final class ExportHandler
              FROM ef_connections c
              INNER JOIN ef_rack_slots s1 ON s1.id = c.src_slot_id
              INNER JOIN ef_rack_slots s2 ON s2.id = c.dst_slot_id
+             INNER JOIN ef_rack_instances ri1 ON ri1.id = s1.rack_id
+             INNER JOIN ef_rack_instances ri2 ON ri2.id = s2.rack_id
              INNER JOIN ef_device_templates d1 ON d1.id = s1.device_template_id
              INNER JOIN ef_device_templates d2 ON d2.id = s2.device_template_id
              WHERE c.project_id = ?

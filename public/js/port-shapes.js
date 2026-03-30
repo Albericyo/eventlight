@@ -6,34 +6,64 @@
 
   const NS = 'http://www.w3.org/2000/svg';
 
-  /** @type {Record<string, { label: string, r: number, signal?: string }>} */
+  /**
+   * sizeFrac ≈ fraction de la largeur d’une case de grille (1 ≈ toute la largeur 19" / 10 par U).
+   * designSpan ≈ plus grande dimension du dessin vectoriel (avant scale), pour ne pas dépasser la case.
+   * @type {Record<string, { label: string, r: number, sizeFrac: number, designSpan: number, signal?: string }>}
+   */
   const PORT_TYPES = {
-    xlr_f: { label: 'XLR femelle (3 pts)', r: 10, signal: 'audio_analog' },
-    xlr_m: { label: 'XLR mâle (3 pts)', r: 10, signal: 'audio_analog' },
-    xlr5_f: { label: 'XLR5 femelle (DMX)', r: 10, signal: 'dmx' },
-    xlr5_m: { label: 'XLR5 mâle (DMX)', r: 10, signal: 'dmx' },
-    jack_ts: { label: 'Jack 6.35 TS', r: 8, signal: 'audio_analog' },
-    jack_trs: { label: 'Jack 6.35 TRS', r: 8, signal: 'audio_analog' },
-    jack_mini: { label: 'Jack 3.5 mm', r: 6, signal: 'audio_analog' },
-    rj45: { label: 'RJ45', r: 11, signal: 'ethernet' },
-    ethercon: { label: 'EtherCON', r: 10, signal: 'ethernet' },
-    speakon_2: { label: 'Speakon NL2', r: 10, signal: 'audio_analog' },
-    speakon_4: { label: 'Speakon NL4', r: 11, signal: 'audio_analog' },
-    powercon_in: { label: 'PowerCON entrée (bleu)', r: 10, signal: 'power' },
-    powercon_out: { label: 'PowerCON sortie (gris)', r: 10, signal: 'power' },
-    iec_in: { label: 'IEC C14 (entrée secteur)', r: 12, signal: 'power' },
-    iec_out: { label: 'IEC C13 (sortie)', r: 12, signal: 'power' },
-    schuko_f: { label: 'Prise secteur (Schuko F)', r: 14, signal: 'power' },
-    schuko_m: { label: 'Fiche secteur (Schuko M)', r: 14, signal: 'power' },
-    usb_a: { label: 'USB-A', r: 8, signal: 'other' },
-    usb_c: { label: 'USB-C', r: 7, signal: 'other' },
-    hdmi: { label: 'HDMI', r: 12, signal: 'video' },
-    bnc: { label: 'BNC', r: 9, signal: 'video' },
-    led_indicator: { label: 'LED', r: 4, signal: 'other' },
-    button: { label: 'Bouton', r: 7, signal: 'other' },
-    display: { label: 'Écran', r: 14, signal: 'other' },
-    knob: { label: 'Potentiomètre', r: 11, signal: 'other' },
+    xlr_f: { label: 'XLR femelle (3 pts)', r: 10, sizeFrac: 0.44, designSpan: 20, signal: 'audio_analog' },
+    xlr_m: { label: 'XLR mâle (3 pts)', r: 10, sizeFrac: 0.44, designSpan: 20, signal: 'audio_analog' },
+    xlr5_f: { label: 'XLR5 femelle (DMX)', r: 10, sizeFrac: 0.44, designSpan: 20, signal: 'dmx' },
+    xlr5_m: { label: 'XLR5 mâle (DMX)', r: 10, sizeFrac: 0.44, designSpan: 20, signal: 'dmx' },
+    jack_ts: { label: 'Jack 6.35 TS', r: 8, sizeFrac: 0.38, designSpan: 16, signal: 'audio_analog' },
+    jack_trs: { label: 'Jack 6.35 TRS', r: 8, sizeFrac: 0.38, designSpan: 16, signal: 'audio_analog' },
+    jack_mini: { label: 'Jack 3.5 mm', r: 6, sizeFrac: 0.3, designSpan: 10, signal: 'audio_analog' },
+    rj45: { label: 'RJ45', r: 11, sizeFrac: 0.5, designSpan: 18, signal: 'ethernet' },
+    ethercon: { label: 'EtherCON', r: 10, sizeFrac: 0.5, designSpan: 22, signal: 'ethernet' },
+    speakon_2: { label: 'Speakon NL2', r: 10, sizeFrac: 0.5, designSpan: 22, signal: 'audio_analog' },
+    speakon_4: { label: 'Speakon NL4', r: 11, sizeFrac: 0.52, designSpan: 22, signal: 'audio_analog' },
+    powercon_in: { label: 'PowerCON entrée (bleu)', r: 10, sizeFrac: 0.5, designSpan: 20, signal: 'power' },
+    powercon_out: { label: 'PowerCON sortie (gris)', r: 10, sizeFrac: 0.5, designSpan: 20, signal: 'power' },
+    iec_in: { label: 'IEC C14 (entrée secteur)', r: 12, sizeFrac: 0.88, designSpan: 22, signal: 'power' },
+    iec_out: { label: 'IEC C13 (sortie)', r: 12, sizeFrac: 0.88, designSpan: 22, signal: 'power' },
+    schuko_f: { label: 'Prise secteur (Schuko F)', r: 14, sizeFrac: 0.95, designSpan: 24, signal: 'power' },
+    schuko_m: { label: 'Fiche secteur (Schuko M)', r: 14, sizeFrac: 0.95, designSpan: 25, signal: 'power' },
+    usb_a: { label: 'USB-A', r: 8, sizeFrac: 0.36, designSpan: 14, signal: 'other' },
+    usb_c: { label: 'USB-C', r: 7, sizeFrac: 0.3, designSpan: 12, signal: 'other' },
+    hdmi: { label: 'HDMI', r: 12, sizeFrac: 0.48, designSpan: 20, signal: 'video' },
+    bnc: { label: 'BNC', r: 9, sizeFrac: 0.36, designSpan: 18, signal: 'video' },
+    led_indicator: { label: 'LED', r: 4, sizeFrac: 0.2, designSpan: 8, signal: 'other' },
+    button: { label: 'Bouton', r: 7, sizeFrac: 0.32, designSpan: 14, signal: 'other' },
+    display: { label: 'Écran', r: 14, sizeFrac: 0.7, designSpan: 28, signal: 'other' },
+    knob: { label: 'Potentiomètre', r: 11, sizeFrac: 0.48, designSpan: 22, signal: 'other' },
   };
+
+  const DEFAULT_DESIGN_SPAN = 20;
+
+  function defaultType(type) {
+    if (!type || typeof type !== 'string') return 'xlr_f';
+    if (PORT_TYPES[type]) return type;
+    const legacy = {
+      speakon: 'speakon_4',
+      xlr3: 'xlr_f',
+      dmx: 'xlr5_f',
+      power: 'iec_in',
+      iec: 'iec_in',
+    };
+    return legacy[type] || 'xlr_f';
+  }
+
+  /** Échelle : taille dessin × scale ≈ sizeFrac × largeur de case (sans dépasser grâce à designSpan). */
+  function visualScaleForType(type, cellWidth) {
+    const w = Math.max(24, Number(cellWidth) || 45);
+    const id = defaultType(type);
+    const meta = PORT_TYPES[id];
+    const frac = Math.max(0.12, Math.min(1.25, meta && typeof meta.sizeFrac === 'number' ? meta.sizeFrac : 0.44));
+    const span = Math.max(8, meta && typeof meta.designSpan === 'number' ? meta.designSpan : DEFAULT_DESIGN_SPAN);
+    const s = (frac * w) / span;
+    return Math.max(0.16, Math.min(2.5, s));
+  }
 
   function stroke() {
     return '#9aa3b2';
@@ -50,12 +80,20 @@
 
   /**
    * Dessine la forme centrée sur (0,0) dans le groupe g.
+   * @param {number} [cellWidth] largeur d’une case grille (px dans le viewBox), ex. 450/10
    */
-  function appendShapeToGroup(g, type, color) {
+  function appendShapeToGroup(g, type, color, cellWidth) {
     const st = stroke();
     const fd = fillDark();
     const fm = fillMetal();
     const ac = accent(color);
+    const tId = defaultType(type);
+    const cw = cellWidth != null && !Number.isNaN(Number(cellWidth)) ? Number(cellWidth) : 45;
+    const sc = visualScaleForType(tId, cw);
+    const inner = document.createElementNS(NS, 'g');
+    inner.setAttribute('transform', `scale(${sc})`);
+    g.appendChild(inner);
+    const tg = inner;
 
     function circle(cx, cy, r, opt) {
       const el = document.createElementNS(NS, 'circle');
@@ -67,7 +105,7 @@
         if (opt.stroke) el.setAttribute('stroke', opt.stroke);
         if (opt.sw != null) el.setAttribute('stroke-width', String(opt.sw));
       }
-      g.appendChild(el);
+      tg.appendChild(el);
     }
 
     function rect(x, y, w, h, rx, opt) {
@@ -82,7 +120,7 @@
         if (opt.stroke) el.setAttribute('stroke', opt.stroke);
         if (opt.sw != null) el.setAttribute('stroke-width', String(opt.sw));
       }
-      g.appendChild(el);
+      tg.appendChild(el);
     }
 
     function line(x1, y1, x2, y2, opt) {
@@ -95,7 +133,7 @@
         if (opt.stroke) el.setAttribute('stroke', opt.stroke);
         if (opt.sw != null) el.setAttribute('stroke-width', String(opt.sw));
       }
-      g.appendChild(el);
+      tg.appendChild(el);
     }
 
     function path(d, opt) {
@@ -107,8 +145,10 @@
         if (opt.sw != null) el.setAttribute('stroke-width', String(opt.sw));
         if (opt.fillRule) el.setAttribute('fill-rule', opt.fillRule);
       }
-      g.appendChild(el);
+      tg.appendChild(el);
     }
+
+    const type = tId;
 
     // —— XLR femelle : coque circulaire + 3 trous (triangle) ——
     if (type === 'xlr_f') {
@@ -327,9 +367,10 @@
   }
 
   /**
-   * Fragment SVG (chaîne) pour export — doit rester synchro avec appendShapeToGroup.
+   * Fragment SVG (chaîne) pour export — synchro avec appendShapeToGroup (sans scale).
    */
-  function shapeToSvgString(type, color) {
+  function shapeToSvgStringRaw(type, color) {
+    type = defaultType(type);
     const st = '#9aa3b2';
     const fd = '#15181d';
     const fm = '#2a3140';
@@ -552,23 +593,25 @@
     return `<circle cx="0" cy="0" r="8" fill="${fd}" stroke="${esc(ac)}" stroke-width="1"/>`;
   }
 
-  function defaultType(type) {
-    if (!type || typeof type !== 'string') return 'xlr_f';
-    if (PORT_TYPES[type]) return type;
-    const legacy = {
-      speakon: 'speakon_4',
-      xlr3: 'xlr_f',
-      dmx: 'xlr5_f',
-      power: 'iec_in',
-      iec: 'iec_in',
-    };
-    return legacy[type] || 'xlr_f';
+  /**
+   * @param {string} type
+   * @param {string} color
+   * @param {number} [cellWidth] largeur d’une case grille — requis pour taille relative au type
+   */
+  function shapeToSvgString(type, color, cellWidth) {
+    const raw = shapeToSvgStringRaw(type, color);
+    const cw = cellWidth != null ? Number(cellWidth) : 45;
+    const sc = visualScaleForType(type, cw);
+    if (Math.abs(sc - 1) < 1e-4) return raw;
+    return `<g transform="scale(${sc})">${raw}</g>`;
   }
 
   global.PortShapes = {
     PORT_TYPES,
     appendShapeToGroup,
     shapeToSvgString,
+    shapeToSvgStringRaw,
     defaultType,
+    visualScaleForType,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
