@@ -550,7 +550,7 @@ a.link-accent {
 
 .rack-vis {
   width: 100%;
-  max-width: 320px;
+  max-width: 520px;
   background: #111316;
   border: 2px solid #2e3140;
   border-radius: 8px;
@@ -564,6 +564,49 @@ a.link-accent {
   align-items: stretch;
   gap: 3px;
   margin-bottom: 2px;
+}
+
+/* Ligne : schéma rack à gauche, nom équipement à droite (hors cadre visuel U) */
+.rack-slot-r--split {
+  gap: 10px;
+  align-items: stretch;
+}
+
+.rack-slot-graphic {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  flex: 0 0 auto;
+  width: 318px;
+  max-width: min(318px, 58vw);
+}
+
+.rack-slot-outside-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 2px 4px 2px 0;
+}
+
+.rack-slot-outside-title {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.rack-slot-outside-meta {
+  font-size: 8px;
+  color: var(--muted);
+  margin-top: 3px;
+  line-height: 1.25;
+}
+
+.rack-slot-outside-name--empty {
+  min-width: 8px;
+  flex: 1;
 }
 
 .slot-num-r {
@@ -592,6 +635,128 @@ a.link-accent {
 
 .slot-body-r.occ {
   border-style: solid;
+}
+
+.slot-body-with-face {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 3px 5px !important;
+  min-height: 0;
+  justify-content: flex-start;
+}
+
+.slot-body--ports-only {
+  justify-content: center;
+}
+
+.slot-body--ports-only .slot-face-strip {
+  flex: 1 1 auto;
+  min-height: 14px;
+}
+
+.slot-face-strip {
+  flex: 0 0 auto;
+  min-height: 10px;
+  max-height: 20px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.slot-face-strip--2u {
+  max-height: none;
+  min-height: 44px;
+  flex: 1 1 auto;
+}
+
+.rack-slot-face-svg {
+  width: 100%;
+  height: 100%;
+  min-height: 14px;
+  display: block;
+}
+
+.slot-face-empty {
+  font-size: 7px;
+  line-height: 1.2;
+  padding: 2px 4px;
+  opacity: 0.75;
+}
+
+/* Face sans connecteur : état normal, pas un message d’erreur */
+.slot-face-empty--neutral {
+  min-height: 8px;
+  padding: 0;
+  opacity: 1;
+}
+
+.slot-face-text {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.slot-face-text .slot-dn {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rack-face-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.rack-face-lbl {
+  font-size: 9px;
+  color: var(--muted);
+  margin-right: 4px;
+}
+
+.rack-face-btn.rack-face-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.rack-drop-zone {
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.rack-drop-zone.rack-drop-hover {
+  border-color: var(--accent);
+  background: rgba(79, 142, 247, 0.08);
+  outline: 1px dashed var(--accent);
+  outline-offset: -1px;
+}
+
+#app.light .rack-drop-zone.rack-drop-hover {
+  background: rgba(24, 95, 165, 0.1);
+}
+
+.ef-dragging {
+  opacity: 0.72;
+}
+
+.lib-item[draggable='true'] {
+  cursor: grab;
+}
+
+/* Ligne entière draggable : les enfants ne capturent pas le drag */
+.rack-slot-row[data-slot-id] {
+  cursor: grab;
+}
+
+.rack-slot-row[data-slot-id]:active {
+  cursor: grabbing;
+}
+
+.rack-slot-row[data-slot-id] .rack-slot-graphic .slot-num-r,
+.rack-slot-row[data-slot-id] .rack-slot-graphic .slot-body-r {
+  pointer-events: none;
+  user-select: none;
 }
 
 .slot-dn {
@@ -978,4 +1143,82 @@ textarea.ef-ta {
   font-size: 11px;
   resize: vertical;
   font-family: var(--font);
+}
+
+/* Modales (remplacent prompt / alert natifs) */
+.ef-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(6, 8, 12, 0.72);
+  backdrop-filter: blur(4px);
+}
+
+#app.light .ef-modal-backdrop {
+  background: rgba(20, 24, 32, 0.45);
+}
+
+.ef-modal {
+  width: 100%;
+  max-width: 400px;
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 18px 20px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+.ef-modal--wide {
+  max-width: 440px;
+}
+
+.ef-modal-title {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.ef-modal-msg {
+  font-size: 11px;
+  line-height: 1.45;
+  margin-bottom: 12px;
+  color: var(--text);
+}
+
+.ef-modal-msg.muted {
+  color: var(--muted);
+}
+
+.ef-modal .ef-modal-input {
+  margin-bottom: 14px;
+}
+
+.ef-modal-fields {
+  margin-bottom: 14px;
+}
+
+.ef-modal-fields .field-label {
+  margin-top: 8px;
+}
+
+.ef-modal-fields .field-label:first-child {
+  margin-top: 0;
+}
+
+.ef-modal-fields .ef-select {
+  margin-top: 2px;
+}
+
+.ef-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
 }

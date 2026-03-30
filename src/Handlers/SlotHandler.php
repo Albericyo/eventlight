@@ -44,6 +44,8 @@ final class SlotHandler
         self::assertDeviceVisible($deviceId, $uid);
         $slotU = (int) ($b['slot_u'] ?? 1);
         $slotCol = (int) ($b['slot_col'] ?? 0);
+        $devH = self::templateRackU($deviceId);
+        self::validateSlotPosition(null, $rackId, $slotU, $slotCol, $devH);
         $pdo = DB::pdo();
         try {
             $st = $pdo->prepare(
@@ -76,18 +78,33 @@ final class SlotHandler
         $slot = self::slotWithRackProject($sid);
         self::assertProjectOwner((int) $slot['project_id'], $uid);
         $b = Request::jsonBody();
-        $st = DB::pdo()->prepare(
-            'UPDATE ef_rack_slots SET
-             custom_name=?, custom_notes=?, color_hex=?, port_labels=?
-             WHERE id=?'
-        );
-        $st->execute([
-            array_key_exists('custom_name', $b) ? self::nullableString($b, 'custom_name') : $slot['custom_name'],
-            array_key_exists('custom_notes', $b) ? self::nullableString($b, 'custom_notes') : $slot['custom_notes'],
-            array_key_exists('color_hex', $b) ? self::colorHex($b['color_hex'] ?? null) : $slot['color_hex'],
-            array_key_exists('port_labels', $b) ? self::jsonOrNull($b['port_labels']) : $slot['port_labels'],
-            $sid,
-        ]);
+        $slotU = array_key_exists('slot_u', $b) ? (int) $b['slot_u'] : (int) $slot['slot_u'];
+        $slotCol = array_key_exists('slot_col', $b) ? (int) $b['slot_col'] : (int) $slot['slot_col'];
+        $devH = self::templateRackU((int) $slot['device_template_id']);
+        if ($slotU !== (int) $slot['slot_u'] || $slotCol !== (int) $slot['slot_col']) {
+            self::validateSlotPosition($sid, (int) $slot['rack_id'], $slotU, $slotCol, $devH);
+        }
+        try {
+            $st = DB::pdo()->prepare(
+                'UPDATE ef_rack_slots SET
+                 custom_name=?, custom_notes=?, color_hex=?, port_labels=?, slot_u=?, slot_col=?
+                 WHERE id=?'
+            );
+            $st->execute([
+                array_key_exists('custom_name', $b) ? self::nullableString($b, 'custom_name') : $slot['custom_name'],
+                array_key_exists('custom_notes', $b) ? self::nullableString($b, 'custom_notes') : $slot['custom_notes'],
+                array_key_exists('color_hex', $b) ? self::colorHex($b['color_hex'] ?? null) : $slot['color_hex'],
+                array_key_exists('port_labels', $b) ? self::jsonOrNull($b['port_labels']) : $slot['port_labels'],
+                $slotU,
+                $slotCol,
+                $sid,
+            ]);
+        } catch (\PDOException $e) {
+            if ($e->getCode() === '23000' && str_contains($e->getMessage(), 'uq_slot')) {
+                JsonResponse::error('Emplacement déjà occupé (slot_u / slot_col)', 409);
+            }
+            throw $e;
+        }
         JsonResponse::send(self::slotRow($sid));
     }
 
@@ -193,5 +210,51 @@ final class SlotHandler
         }
         $s = (string) $v;
         return preg_match('/^#[0-9A-Fa-f]{6}$/', $s) ? $s : null;
+    }
+
+    private static function templateRackU(int $deviceTemplateId): int
+    {
+        $st = DB::pdo()->prepare('SELECT rack_u FROM ef_device_templates WHERE id=? LIMIT 1');
+        $st->execute([$deviceTemplateId]);
+        $r = $st->fetch();
+        return max(1, (int) ($r['rack_u'] ?? 1));
+    }
+
+    /** Chevauchement d’intervalles U sur la même colonne (slot_col). */
+    private static function validateSlotPosition(?int $excludeSlotId, int $rackId, int $slotU, int $slotCol, int $heightU): void
+    {
+        $st = DB::pdo()->prepare('SELECT size_u FROM ef_rack_instances WHERE id=? LIMIT 1');
+        $st->execute([$rackId]);
+        $rack = $st->fetch();
+        $sizeU = max(1, (int) ($rack['size_u'] ?? 12));
+        if ($slotU < 1 || $slotU + $heightU - 1 > $sizeU) {
+            JsonResponse::error('Position hors rack', 422);
+        }
+        $sql = 'SELECT s.id, s.slot_u, s.slot_col, d.rack_u
+                FROM ef_rack_slots s
+                INNER JOIN ef_device_templates d ON d.id = s.device_template_id
+                WHERE s.rack_id=?';
+        $params = [$rackId];
+        if ($excludeSlotId !== null && $excludeSlotId > 0) {
+            $sql .= ' AND s.id<>?';
+            $params[] = $excludeSlotId;
+        }
+        $st = DB::pdo()->prepare($sql);
+        $st->execute($params);
+        $mineLo = $slotU;
+        $mineHi = $slotU + $heightU - 1;
+        while ($row = $st->fetch()) {
+            $oc = (int) $row['slot_col'];
+            if ($oc !== $slotCol) {
+                continue;
+            }
+            $ou = (int) $row['slot_u'];
+            $oh = max(1, (int) $row['rack_u']);
+            $oLo = $ou;
+            $oHi = $ou + $oh - 1;
+            if (max($mineLo, $oLo) <= min($mineHi, $oHi)) {
+                JsonResponse::error('Emplacement déjà occupé (chevauchement)', 409);
+            }
+        }
     }
 }

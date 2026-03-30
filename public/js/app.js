@@ -10,7 +10,71 @@
     themeLight: false,
     selectedRackId: null,
     selectedSlotId: null,
+    /** Vue rack : connecteurs face avant ou face arrière (aligné sur panel-editor). */
+    rackFaceView: 'front',
+    /** Mode connexion : appui prolongé sur deux ports pour créer une liaison. */
+    connectionMode: false,
+    connectionDraft: null,
   };
+
+  const PANEL_W = { full: 450, half: 213, third: 140 };
+  const PANEL_U_H = 44;
+  const PANEL_SLOTS_PER_U = { full: 10, half: 5, third: 3 };
+
+  function parsePanelPorts(raw) {
+    if (raw == null || raw === '') return [];
+    if (Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const p = JSON.parse(raw);
+        return Array.isArray(p) ? p : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  function portCenterOnPanel(panelW, rackW, rackU, p) {
+    const cols = PANEL_SLOTS_PER_U[rackW] != null ? PANEL_SLOTS_PER_U[rackW] : PANEL_SLOTS_PER_U.full;
+    const cw = panelW / cols;
+    const ch = PANEL_U_H;
+    if (typeof p.gridCol === 'number' && typeof p.gridRow === 'number') {
+      const col = Math.max(0, Math.min(cols - 1, Math.floor(p.gridCol)));
+      const row = Math.max(0, Math.min(rackU - 1, Math.floor(p.gridRow)));
+      return { x: (col + 0.5) * cw, y: (row + 0.5) * ch };
+    }
+    const x = Number(p.x) || 0;
+    const y = Number(p.y) || 0;
+    return { x, y };
+  }
+
+  /** Aperçu SVG des ports (face avant ou arrière) pour une ligne du rack. */
+  function buildRackFacePreview(slot, face) {
+    const key = face === 'rear' ? 'panel_rear_ports' : 'panel_front_ports';
+    const ports = parsePanelPorts(slot[key]);
+    const PS = typeof PortShapes !== 'undefined' ? PortShapes : null;
+    const rw = slot.rack_width || 'full';
+    const panelW = PANEL_W[rw] || PANEL_W.full;
+    const ru = Math.max(1, Math.min(4, Number(slot.rack_u || 1)));
+    const panelH = PANEL_U_H * ru;
+    if (!ports.length) {
+      return `<div class="slot-face-empty slot-face-empty--neutral" title="Face sans connecteur — c’est normal, les équipements peuvent avoir une face vide."></div>`;
+    }
+    if (!PS) {
+      return `<div class="slot-face-empty muted">${ports.length} connecteur(s)</div>`;
+    }
+
+    let body = '';
+    for (const p of ports) {
+      const { x, y } = portCenterOnPanel(panelW, rw, ru, p);
+      const t = PS.defaultType(p.type || 'xlr_f');
+      const inner = PS.shapeToSvgString(t, p.color || '#5a6a85');
+      const pid = escAttr(p.id != null ? p.id : '');
+      body += `<g class="rack-port-g" transform="translate(${x},${y})" data-slot-id="${slot.id}" data-port-id="${pid}" data-face="${fv}" style="pointer-events:all">${inner}</g>`;
+    }
+    return `<svg class="rack-slot-face-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="xMidYMid meet">${body}</svg>`;
+  }
 
   const ICONS = {
     dash: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>',
@@ -29,10 +93,225 @@
     custom: '#607d8b',
   };
 
+  /** Vérifie qu’aucun autre slot (même colonne) ne chevauche [slotU, slotU+heightU-1]. */
+  function slotRangeFree(slots, slotU, heightU, slotCol, excludeSlotId) {
+    const lo = slotU;
+    const hi = slotU + heightU - 1;
+    for (const s of slots) {
+      if (excludeSlotId != null && String(s.id) === String(excludeSlotId)) continue;
+      if (Number(s.slot_col || 0) !== Number(slotCol)) continue;
+      const h = Math.max(1, Number(s.rack_u || 1));
+      const olo = Number(s.slot_u);
+      const ohi = olo + h - 1;
+      if (Math.max(lo, olo) <= Math.min(hi, ohi)) return false;
+    }
+    return true;
+  }
+
   function esc(s) {
     const d = document.createElement('div');
     d.textContent = s == null ? '' : String(s);
     return d.innerHTML;
+  }
+
+  function escAttr(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;');
+  }
+
+  function findSlotInRacks(racks, slotId) {
+    for (const r of racks || []) {
+      const s = (r.slots || []).find((x) => String(x.id) === String(slotId));
+      if (s) return { rack: r, slot: s };
+    }
+    return null;
+  }
+
+  /** Modale saisie (remplace prompt). Renvoie la chaîne trimée, ou null si annulation / champ vide. */
+  function showModalPrompt(opts) {
+    const {
+      title,
+      message = '',
+      defaultValue = '',
+      placeholder = '',
+      confirmText = 'OK',
+      cancelText = 'Annuler',
+      inputMode = 'text',
+      min,
+      max,
+    } = opts;
+    return new Promise((resolve) => {
+      const inpType = inputMode === 'number' ? 'number' : 'text';
+      const minAttr = min != null ? ` min="${Number(min)}"` : '';
+      const maxAttr = max != null ? ` max="${Number(max)}"` : '';
+      const html = `
+        <div class="ef-modal" role="dialog" aria-modal="true">
+          <div class="ef-modal-title">${esc(title)}</div>
+          ${message ? `<div class="ef-modal-msg muted">${esc(message)}</div>` : ''}
+          <input type="${inpType}" class="ef-inp ef-modal-input" value="${esc(defaultValue)}" placeholder="${esc(placeholder)}"${minAttr}${maxAttr} />
+          <div class="ef-modal-actions">
+            <button type="button" class="btn" data-act="cancel">${esc(cancelText)}</button>
+            <button type="button" class="btn btn-p" data-act="ok">${esc(confirmText)}</button>
+          </div>
+        </div>`;
+      const backdrop = document.createElement('div');
+      backdrop.className = 'ef-modal-backdrop';
+      backdrop.innerHTML = html;
+      document.body.appendChild(backdrop);
+      document.body.style.overflow = 'hidden';
+      const inp = backdrop.querySelector('.ef-modal-input');
+      const finish = (val) => {
+        backdrop.remove();
+        document.body.style.overflow = '';
+        resolve(val);
+      };
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) finish(null);
+      });
+      backdrop.querySelector('[data-act="cancel"]').addEventListener('click', () => finish(null));
+      backdrop.querySelector('[data-act="ok"]').addEventListener('click', () => {
+        const raw = inp.value.trim();
+        if (raw === '') {
+          finish(null);
+          return;
+        }
+        if (inputMode === 'number') {
+          const n = Number(raw);
+          if (Number.isNaN(n)) {
+            finish(null);
+            return;
+          }
+          finish(String(n));
+          return;
+        }
+        finish(raw);
+      });
+      inp.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          backdrop.querySelector('[data-act="ok"]').click();
+        }
+        if (e.key === 'Escape') finish(null);
+      });
+      setTimeout(() => {
+        inp.focus();
+        if (typeof inp.select === 'function') inp.select();
+      }, 10);
+    });
+  }
+
+  /** Modale message (remplace alert). */
+  function showModalAlert(opts) {
+    const { title, message = '', okText = 'OK' } = opts;
+    return new Promise((resolve) => {
+      const html = `
+        <div class="ef-modal" role="alertdialog">
+          <div class="ef-modal-title">${esc(title)}</div>
+          ${message ? `<div class="ef-modal-msg">${esc(message)}</div>` : ''}
+          <div class="ef-modal-actions">
+            <button type="button" class="btn btn-p" data-act="ok">${esc(okText)}</button>
+          </div>
+        </div>`;
+      const backdrop = document.createElement('div');
+      backdrop.className = 'ef-modal-backdrop';
+      backdrop.innerHTML = html;
+      document.body.appendChild(backdrop);
+      document.body.style.overflow = 'hidden';
+      const finish = () => {
+        document.removeEventListener('keydown', onKey);
+        backdrop.remove();
+        document.body.style.overflow = '';
+        resolve();
+      };
+      const onKey = (e) => {
+        if (e.key === 'Enter' || e.key === 'Escape') {
+          e.preventDefault();
+          finish();
+        }
+      };
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) finish();
+      });
+      const btn = backdrop.querySelector('[data-act="ok"]');
+      btn.addEventListener('click', finish);
+      document.addEventListener('keydown', onKey);
+      setTimeout(() => btn.focus(), 10);
+    });
+  }
+
+  /** Formulaire connexion (remplace 4× prompt). */
+  function showModalConnection(slotsFlat) {
+    return new Promise((resolve) => {
+      const opts = slotsFlat.map((x) => `<option value="${x.id}">${esc(x.label)}</option>`).join('');
+      const html = `
+        <div class="ef-modal ef-modal--wide" role="dialog" aria-modal="true">
+          <div class="ef-modal-title">Nouvelle connexion</div>
+          <div class="ef-modal-msg muted">Slots et identifiants de ports (ids des connecteurs sur les faces équipement).</div>
+          <div class="ef-modal-fields">
+            <label class="field-label">Équipement source</label>
+            <select class="ef-select" id="efc-s1">${opts}</select>
+            <label class="field-label">ID port source</label>
+            <input class="ef-inp" id="efc-p1" type="text" placeholder="ex. p1" autocomplete="off" />
+            <label class="field-label">Équipement destination</label>
+            <select class="ef-select" id="efc-s2">${opts}</select>
+            <label class="field-label">ID port destination</label>
+            <input class="ef-inp" id="efc-p2" type="text" placeholder="ex. p2" autocomplete="off" />
+          </div>
+          <div class="ef-modal-actions">
+            <button type="button" class="btn" data-act="cancel">Annuler</button>
+            <button type="button" class="btn btn-p" data-act="ok">Créer</button>
+          </div>
+        </div>`;
+      const backdrop = document.createElement('div');
+      backdrop.className = 'ef-modal-backdrop';
+      backdrop.innerHTML = html;
+      document.body.appendChild(backdrop);
+      document.body.style.overflow = 'hidden';
+      const s1 = backdrop.querySelector('#efc-s1');
+      const s2 = backdrop.querySelector('#efc-s2');
+      const p1 = backdrop.querySelector('#efc-p1');
+      const p2 = backdrop.querySelector('#efc-p2');
+      if (slotsFlat.length >= 2) {
+        s2.value = String(slotsFlat[1].id);
+      }
+      const finish = (val) => {
+        document.removeEventListener('keydown', onKeyEsc);
+        backdrop.remove();
+        document.body.style.overflow = '';
+        resolve(val);
+      };
+      const onKeyEsc = (e) => {
+        if (e.key === 'Escape') finish(null);
+      };
+      document.addEventListener('keydown', onKeyEsc);
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) finish(null);
+      });
+      backdrop.querySelector('[data-act="cancel"]').addEventListener('click', () => finish(null));
+      backdrop.querySelector('[data-act="ok"]').addEventListener('click', () => {
+        const pid1 = p1.value.trim();
+        const pid2 = p2.value.trim();
+        if (!pid1 || !pid2) {
+          finish(null);
+          return;
+        }
+        finish({
+          src_slot_id: Number(s1.value),
+          src_port_id: pid1,
+          dst_slot_id: Number(s2.value),
+          dst_port_id: pid2,
+        });
+      });
+      p2.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          backdrop.querySelector('[data-act="ok"]').click();
+        }
+      });
+      setTimeout(() => p1.focus(), 10);
+    });
   }
 
   function parseHash() {
@@ -69,8 +348,14 @@
       $('#app').classList.toggle('light', state.themeLight);
     });
     $('#btn-new-proj-top')?.addEventListener('click', async () => {
-      const name = prompt('Nom du projet ?');
-      if (!name) return;
+      const name = await showModalPrompt({
+        title: 'Nouveau projet',
+        message: 'Nom du projet',
+        placeholder: 'Mon événement',
+        confirmText: 'Créer',
+        cancelText: 'Annuler',
+      });
+      if (name == null) return;
       const p = await api.post('/api/ef/projects', { name });
       nav('#/project/' + p.id + '/rack');
     });
@@ -286,7 +571,9 @@
     );
   }
 
-  function rackRowsVisual(rack, slots) {
+  function rackRowsVisual(rack, slots, face) {
+    const rid = rack.id;
+    const fv = face === 'rear' ? 'rear' : 'front';
     const size = Number(rack.size_u || 12);
     const sorted = [...slots].sort((a, b) => Number(a.slot_u) - Number(b.slot_u));
     const rows = [];
@@ -305,20 +592,38 @@
     return rows
       .map((row) => {
         if (row.kind === 'empty') {
-          return `<div class="rack-slot-r"><div class="slot-num-r">${row.u}</div><div class="slot-body-r"><span style="font-size:9px;color:#1e2228">— vide —</span></div></div>`;
+          return `<div class="rack-slot-r rack-slot-r--split" data-rack-id="${rid}">
+            <div class="rack-slot-graphic">
+              <div class="slot-num-r">${row.u}</div>
+              <div class="slot-body-r rack-drop-zone" data-drop-u="${row.u}" data-rack-id="${rid}"><span style="font-size:9px;color:#1e2228">— vide —</span></div>
+            </div>
+            <div class="rack-slot-outside-name rack-slot-outside-name--empty"></div>
+          </div>`;
         }
         const s = row.slot;
         const col = CAT_COL[s.category] || '#4f8ef7';
         const h = row.h;
         const cls = h >= 2 ? ' slot-2u' : '';
+        const faceStrip = buildRackFacePreview(s, fv);
+        const stripCls = h >= 2 ? ' slot-face-strip--2u' : '';
         const num =
           h >= 2
             ? `<div class="slot-num-r" style="height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:2px 0"><span>${row.slot.slot_u}</span><span>${Number(row.slot.slot_u) + h - 1}</span></div>`
             : `<div class="slot-num-r">${s.slot_u}</div>`;
-        return `<div class="rack-slot-r${cls}">${num}<div class="slot-body-r occ${cls}" data-slot-id="${s.id}" style="border-color:${col}55;background:${col}10;border-left:3px solid ${col}">
-          <div><div class="slot-dn" style="color:${col}">${esc(s.custom_name || s.device_name)}</div>
-          <div class="slot-ds">${h}U · ${esc(s.rack_width || 'full')} · ${esc(s.category)}</div></div>
-        </div></div>`;
+        const nm = esc(s.custom_name || s.device_name);
+        const dragAttr = state.connectionMode ? 'false' : 'true';
+        return `<div class="rack-slot-r${cls} rack-slot-r--split rack-slot-row" data-rack-id="${rid}" draggable="${dragAttr}" data-slot-id="${s.id}" title="Glisser vers une ligne vide pour déplacer">
+          <div class="rack-slot-graphic">
+            ${num}
+            <div class="slot-body-r occ${cls} slot-body-with-face slot-body--ports-only" style="border-color:${col}55;background:${col}10;border-left:3px solid ${col}">
+              <div class="slot-face-strip${stripCls}">${faceStrip}</div>
+            </div>
+          </div>
+          <div class="rack-slot-outside-name">
+            <div class="rack-slot-outside-title" style="color:${col}">${nm}</div>
+            <div class="rack-slot-outside-meta">${h}U · ${esc(s.rack_width || 'full')} · ${esc(s.category)}</div>
+          </div>
+        </div>`;
       })
       .join('');
   }
@@ -360,7 +665,7 @@
         const items = byCat[cat]
           .map(
             (d) =>
-              `<div class="lib-item" data-did="${d.id}"><div class="li-name">${esc(d.name)}</div><div class="li-meta"><span class="badge bd-green" style="font-size:8px">${d.rack_u}U</span><span class="badge bd-blue" style="font-size:8px">${esc(d.rack_width)}</span></div></div>`
+              `<div class="lib-item" draggable="true" data-did="${d.id}" title="Glisser-déposer sur une ligne U vide"><div class="li-name">${esc(d.name)}</div><div class="li-meta"><span class="badge bd-green" style="font-size:8px">${d.rack_u}U</span><span class="badge bd-blue" style="font-size:8px">${esc(d.rack_width)}</span></div></div>`
           )
           .join('');
         return head + items;
@@ -369,8 +674,9 @@
 
     const usedU = slots.reduce((s, sl) => s + Number(sl.rack_u || 1), 0);
     const totalW = slots.reduce((s, sl) => s + Number(sl.power_w || 0), 0);
+    const faceV = state.rackFaceView === 'rear' ? 'rear' : 'front';
     const rackHtml = rack
-      ? rackRowsVisual(rack, slots)
+      ? rackRowsVisual(rack, slots, faceV)
       : '<p class="muted">Aucun rack — ajoutez-en un.</p>';
 
     const selSlot = state.selectedSlotId ? slots.find((s) => String(s.id) === String(state.selectedSlotId)) : slots[0];
@@ -417,7 +723,13 @@
               <input class="ef-inp" id="rack-name-inp" value="${esc(rack.name)}" />
               <select class="ef-select" style="width:90px;margin-top:0" id="rack-size-sel">${[6, 8, 12, 16, 20, 24, 32, 42].map((u) => `<option value="${u}" ${Number(rack.size_u) === u ? 'selected' : ''}>${u}U</option>`).join('')}</select>
             </div><button type="button" class="btn" id="btn-save-rack-meta" style="align-self:start">Appliquer rack</button>` : ''}
+            ${rack ? `<div class="rack-face-toggle" role="group" aria-label="Face du rack">
+              <span class="muted rack-face-lbl">Vue connecteurs</span>
+              <button type="button" class="btn rack-face-btn${faceV === 'front' ? ' rack-face-active' : ''}" data-rack-face="front">Face avant</button>
+              <button type="button" class="btn rack-face-btn${faceV === 'rear' ? ' rack-face-active' : ''}" data-rack-face="rear">Face arrière</button>
+            </div>` : ''}
             <div class="rack-vis">${rackHtml}</div>
+            <div class="muted" style="font-size:9px;margin-top:6px;max-width:520px;line-height:1.35">Déplacer : glisser une ligne d’équipement vers une ligne <strong>vide</strong> (même hauteur U requise). Ajouter : glisser depuis la bibliothèque. Le nom est affiché à droite du schéma.</div>
             <div class="muted"><span style="color:var(--text);font-weight:500">${usedU}</span>/${rack ? rack.size_u : 0}U · <span style="color:var(--text);font-weight:500">${totalW}W</span></div>
           </div>
           <div class="rb-panel">
@@ -441,17 +753,176 @@
         viewProjectRack(projectId);
       })
     );
-    $$('.slot-body-r.occ[data-slot-id]').forEach((el) => {
-      el.style.cursor = 'pointer';
-      el.addEventListener('click', () => {
+    $$('.rack-face-btn[data-rack-face]').forEach((b) =>
+      b.addEventListener('click', () => {
+        state.rackFaceView = b.getAttribute('data-rack-face');
+        viewProjectRack(projectId);
+      })
+    );
+    $$('.rack-slot-row[data-slot-id]').forEach((el) => {
+      let didDrag = false;
+      el.addEventListener('dragstart', (e) => {
+        didDrag = false;
+        const sid = Number(el.getAttribute('data-slot-id'));
+        const payload = JSON.stringify({ type: 'slot', slotId: sid });
+        e.dataTransfer.setData('application/json', payload);
+        e.dataTransfer.setData('text/plain', payload);
+        e.dataTransfer.effectAllowed = 'move';
+        try {
+          e.dataTransfer.setDragImage(el, 0, 0);
+        } catch {
+          /* ignore */
+        }
+        el.classList.add('ef-dragging');
+      });
+      el.addEventListener('drag', () => {
+        didDrag = true;
+      });
+      el.addEventListener('dragend', () => {
+        el.classList.remove('ef-dragging');
+      });
+      el.addEventListener('click', (e) => {
+        if (didDrag) {
+          e.preventDefault();
+          e.stopPropagation();
+          didDrag = false;
+          return;
+        }
         state.selectedSlotId = el.getAttribute('data-slot-id');
         viewProjectRack(projectId);
       });
     });
 
+    $$('.lib-item[data-did]').forEach((el) => {
+      el.addEventListener('dragstart', (e) => {
+        const payload = JSON.stringify({ type: 'template', deviceId: Number(el.getAttribute('data-did')) });
+        e.dataTransfer.setData('application/json', payload);
+        e.dataTransfer.setData('text/plain', payload);
+        e.dataTransfer.effectAllowed = 'copy';
+        el.classList.add('ef-dragging');
+      });
+      el.addEventListener('dragend', () => el.classList.remove('ef-dragging'));
+      el.addEventListener('dblclick', async () => {
+        if (!rack) return;
+        const su = await showModalPrompt({
+          title: 'Placer en U',
+          message: 'Position U (1–' + rack.size_u + ')',
+          defaultValue: '1',
+          inputMode: 'number',
+          min: 1,
+          max: rack.size_u,
+          confirmText: 'Placer',
+          cancelText: 'Annuler',
+        });
+        if (su == null) return;
+        await api.post('/api/ef/slots', {
+          rack_id: rack.id,
+          device_template_id: Number(el.getAttribute('data-did')),
+          slot_u: Number(su),
+          slot_col: 0,
+        });
+        viewProjectRack(projectId);
+      });
+    });
+
+    $$('.rack-drop-zone').forEach((zone) => {
+      zone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = e.dataTransfer.effectAllowed === 'copy' ? 'copy' : 'move';
+        zone.classList.add('rack-drop-hover');
+      });
+      zone.addEventListener('dragleave', (e) => {
+        if (!zone.contains(e.relatedTarget)) zone.classList.remove('rack-drop-hover');
+      });
+      zone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        zone.classList.remove('rack-drop-hover');
+        if (!rack) return;
+        let raw = e.dataTransfer.getData('application/json');
+        if (!raw) raw = e.dataTransfer.getData('text/plain');
+        let payload;
+        try {
+          payload = JSON.parse(raw || '{}');
+        } catch {
+          return;
+        }
+        const u = Number(zone.getAttribute('data-drop-u'));
+        const sizeU = Number(rack.size_u || 12);
+        if (!u || u < 1 || u > sizeU) return;
+
+        if (payload.type === 'template') {
+          const dev = devices.find((d) => String(d.id) === String(payload.deviceId));
+          if (!dev) return;
+          const h = Math.max(1, Number(dev.rack_u || 1));
+          if (u + h - 1 > sizeU) {
+            await showModalAlert({
+              title: 'Emplacement impossible',
+              message: 'Équipement trop haut pour cet emplacement.',
+            });
+            return;
+          }
+          if (!slotRangeFree(slots, u, h, 0, null)) {
+            await showModalAlert({
+              title: 'Emplacement occupé',
+              message: 'Pas assez d’espace libre à cet emplacement.',
+            });
+            return;
+          }
+          try {
+            await api.post('/api/ef/slots', {
+              rack_id: rack.id,
+              device_template_id: payload.deviceId,
+              slot_u: u,
+              slot_col: 0,
+            });
+          } catch (err) {
+            await showModalAlert({ title: 'Erreur', message: err.message || 'Erreur' });
+            return;
+          }
+          viewProjectRack(projectId);
+          return;
+        }
+        if (payload.type === 'slot') {
+          const slot = slots.find((s) => String(s.id) === String(payload.slotId));
+          if (!slot) return;
+          const h = Math.max(1, Number(slot.rack_u || 1));
+          if (u + h - 1 > sizeU) {
+            await showModalAlert({
+              title: 'Emplacement impossible',
+              message: 'Équipement trop haut pour cet emplacement.',
+            });
+            return;
+          }
+          if (Number(slot.slot_u) === u && Number(slot.slot_col || 0) === 0) {
+            return;
+          }
+          if (!slotRangeFree(slots, u, h, 0, slot.id)) {
+            await showModalAlert({
+              title: 'Emplacement occupé',
+              message: 'Pas assez d’espace libre à cet emplacement.',
+            });
+            return;
+          }
+          try {
+            await api.put('/api/ef/slots/' + slot.id, { slot_u: u, slot_col: 0 });
+          } catch (err) {
+            await showModalAlert({ title: 'Erreur', message: err.message || 'Erreur' });
+            return;
+          }
+          viewProjectRack(projectId);
+        }
+      });
+    });
+
     $('#btn-add-rack')?.addEventListener('click', async () => {
-      const name = prompt('Nom du rack ?');
-      if (!name) return;
+      const name = await showModalPrompt({
+        title: 'Nouveau rack',
+        message: 'Nom du rack',
+        placeholder: 'Rack principal',
+        confirmText: 'Ajouter',
+        cancelText: 'Annuler',
+      });
+      if (name == null) return;
       await api.post('/api/ef/racks', { project_id: Number(projectId), name, size_u: 12 });
       viewProjectRack(projectId);
     });
@@ -472,7 +943,7 @@
         try {
           pl = JSON.parse(raw);
         } catch {
-          alert('JSON invalide');
+          await showModalAlert({ title: 'JSON invalide', message: 'Vérifiez la syntaxe du champ port_labels.' });
           return;
         }
       }
@@ -485,21 +956,6 @@
     $('#btn-slots-rack')?.addEventListener('click', () => {
       if (rack) nav('#/project/' + projectId + '/rack/' + rack.id + '/slots');
     });
-
-    $$('.lib-item[data-did]').forEach((el) =>
-      el.addEventListener('dblclick', async () => {
-        if (!rack) return;
-        const su = prompt('Position U (1–' + rack.size_u + ') ?', '1');
-        if (!su) return;
-        await api.post('/api/ef/slots', {
-          rack_id: rack.id,
-          device_template_id: Number(el.getAttribute('data-did')),
-          slot_u: Number(su),
-          slot_col: 0,
-        });
-        viewProjectRack(projectId);
-      })
-    );
   }
 
   async function viewProjectSettings(projectId) {
@@ -547,8 +1003,14 @@
       viewProjectSettings(projectId);
     });
     $('#btn-dup').addEventListener('click', async () => {
-      const name = prompt('Nom de la copie ?', 'Copie — ' + data.name);
-      if (!name) return;
+      const name = await showModalPrompt({
+        title: 'Dupliquer le projet',
+        message: 'Nom de la copie',
+        defaultValue: 'Copie — ' + data.name,
+        confirmText: 'Dupliquer',
+        cancelText: 'Annuler',
+      });
+      if (name == null) return;
       const p = await api.post('/api/ef/projects/' + projectId + '/duplicate', { name });
       nav('#/project/' + p.id + '/rack');
     });
@@ -665,20 +1127,20 @@
         }
       }
       if (slotsFlat.length < 2) {
-        alert('Ajoutez des équipements dans les racks.');
+        await showModalAlert({
+          title: 'Connexion impossible',
+          message: 'Ajoutez au moins deux équipements dans les racks.',
+        });
         return;
       }
-      const sid1 = prompt('ID slot source ? (' + slotsFlat.map((x) => x.id).join(', ') + ')');
-      const pid1 = prompt('ID port source ?');
-      const sid2 = prompt('ID slot destination ?');
-      const pid2 = prompt('ID port destination ?');
-      if (!sid1 || !sid2 || !pid1 || !pid2) return;
+      const conn = await showModalConnection(slotsFlat);
+      if (!conn) return;
       await api.post('/api/ef/connections', {
         project_id: Number(projectId),
-        src_slot_id: Number(sid1),
-        src_port_id: pid1,
-        dst_slot_id: Number(sid2),
-        dst_port_id: pid2,
+        src_slot_id: conn.src_slot_id,
+        src_port_id: conn.src_port_id,
+        dst_slot_id: conn.dst_slot_id,
+        dst_port_id: conn.dst_port_id,
         signal_type: 'audio_analog',
         cable_type: 'xlr3',
       });
@@ -808,7 +1270,7 @@
           try {
             pl = JSON.parse(raw);
           } catch {
-            alert('JSON invalide');
+            await showModalAlert({ title: 'JSON invalide', message: 'Vérifiez le JSON des port_labels.' });
             return;
           }
         }
@@ -841,8 +1303,14 @@
     });
     wireNavRail();
     $('#btn-dev-new').addEventListener('click', async () => {
-      const name = prompt('Nom commercial ?');
-      if (!name) return;
+      const name = await showModalPrompt({
+        title: 'Nouvel équipement',
+        message: 'Nom commercial',
+        placeholder: 'Mon préampli',
+        confirmText: 'Créer',
+        cancelText: 'Annuler',
+      });
+      if (name == null) return;
       const d = await api.post('/api/ef/devices', { name, category: 'custom', rack_u: 1 });
       nav('#/device/' + d.id);
     });
@@ -894,7 +1362,7 @@
             <div id="edit-rear"></div>
             <button type="button" class="btn btn-p" id="btn-save-rear">Enregistrer face arrière</button>
           </div>
-          <div class="export-config"><div class="ec-title">Aide</div><p class="muted" style="font-size:10px">Clic sur le fond pour placer un port · double-clic sur un port pour le supprimer · glisser pour déplacer.</p></div>
+          <div class="export-config"><div class="ec-title">Aide</div><p class="muted" style="font-size:10px">Clic sur une case vide pour placer · <strong>double-clic</strong> sur un connecteur pour le supprimer · ou <strong>Alt + clic</strong> si le double-clic ne marche pas · glisser pour déplacer. Faces pouvant rester vides — enregistrez chaque face.</p></div>
         </div>
       </div>`,
       navActive: 2,
@@ -930,14 +1398,14 @@
         panel_front_svg: ef.buildSvgString(),
         panel_front_ports: JSON.parse(ef.getPortsJson() || '[]'),
       });
-      alert('Face avant enregistrée');
+      await showModalAlert({ title: 'Enregistré', message: 'Face avant enregistrée.', okText: 'OK' });
     });
     $('#btn-save-rear')?.addEventListener('click', async () => {
       await api.put('/api/ef/devices/' + devId, {
         panel_rear_svg: er.buildSvgString(),
         panel_rear_ports: JSON.parse(er.getPortsJson() || '[]'),
       });
-      alert('Face arrière enregistrée');
+      await showModalAlert({ title: 'Enregistré', message: 'Face arrière enregistrée.', okText: 'OK' });
     });
   }
 
