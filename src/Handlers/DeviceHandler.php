@@ -86,8 +86,12 @@ final class DeviceHandler
              panel_front_svg=?, panel_rear_svg=?, panel_front_ports=?, panel_rear_ports=?, notes=?, is_public=?
              WHERE id=?'
         );
+        $name = isset($b['name']) ? trim((string) $b['name']) : '';
+        if ($name === '') {
+            JsonResponse::error('Nom requis', 422);
+        }
         $st->execute([
-            isset($b['name']) ? trim((string) $b['name']) : '',
+            $name,
             self::nullableString($b, 'manufacturer'),
             self::enumCategory($b['category'] ?? 'custom'),
             self::intOr($b['rack_u'] ?? 1, 1, 1, 4),
