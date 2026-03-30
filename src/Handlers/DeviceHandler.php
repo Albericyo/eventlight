@@ -79,32 +79,61 @@ final class DeviceHandler
         $uid = Auth::requireUser();
         $did = (int) $id;
         self::requireWritable($did, $uid);
+        $cur = self::row($did);
         $b = Request::jsonBody();
+        $name = array_key_exists('name', $b) ? trim((string) $b['name']) : (string) $cur['name'];
+        if ($name === '') {
+            JsonResponse::error('Nom requis', 422);
+        }
+        $manufacturer = array_key_exists('manufacturer', $b)
+            ? self::nullableString($b, 'manufacturer')
+            : ($cur['manufacturer'] ?? null);
+        $category = array_key_exists('category', $b)
+            ? self::enumCategory($b['category'])
+            : self::enumCategory($cur['category'] ?? 'custom');
+        $rackU = array_key_exists('rack_u', $b)
+            ? self::intOr($b['rack_u'], 1, 1, 4)
+            : self::intOr($cur['rack_u'] ?? 1, 1, 1, 4);
+        $rackWidth = array_key_exists('rack_width', $b)
+            ? self::enumWidth($b['rack_width'])
+            : self::enumWidth($cur['rack_width'] ?? 'full');
+        $weightKg = array_key_exists('weight_kg', $b)
+            ? (isset($b['weight_kg']) && $b['weight_kg'] !== '' ? (float) $b['weight_kg'] : null)
+            : ($cur['weight_kg'] !== null ? (float) $cur['weight_kg'] : null);
+        $powerW = array_key_exists('power_w', $b) ? (int) $b['power_w'] : (int) ($cur['power_w'] ?? 0);
+        $depthMm = array_key_exists('depth_mm', $b)
+            ? (isset($b['depth_mm']) && $b['depth_mm'] !== '' ? (int) $b['depth_mm'] : null)
+            : ($cur['depth_mm'] !== null ? (int) $cur['depth_mm'] : null);
+        $pfs = array_key_exists('panel_front_svg', $b) ? $b['panel_front_svg'] : $cur['panel_front_svg'];
+        $prs = array_key_exists('panel_rear_svg', $b) ? $b['panel_rear_svg'] : $cur['panel_rear_svg'];
+        $pfp = array_key_exists('panel_front_ports', $b) ? self::jsonOrNull($b['panel_front_ports']) : $cur['panel_front_ports'];
+        $prp = array_key_exists('panel_rear_ports', $b) ? self::jsonOrNull($b['panel_rear_ports']) : $cur['panel_rear_ports'];
+        $notes = array_key_exists('notes', $b) ? self::nullableString($b, 'notes') : ($cur['notes'] ?? null);
+        $isPublic = array_key_exists('is_public', $b)
+            ? (!empty($b['is_public']) ? 1 : 0)
+            : (int) ($cur['is_public'] ?? 0);
+
         $st = DB::pdo()->prepare(
             'UPDATE ef_device_templates SET
              name=?, manufacturer=?, category=?, rack_u=?, rack_width=?, weight_kg=?, power_w=?, depth_mm=?,
              panel_front_svg=?, panel_rear_svg=?, panel_front_ports=?, panel_rear_ports=?, notes=?, is_public=?
              WHERE id=?'
         );
-        $name = isset($b['name']) ? trim((string) $b['name']) : '';
-        if ($name === '') {
-            JsonResponse::error('Nom requis', 422);
-        }
         $st->execute([
             $name,
-            self::nullableString($b, 'manufacturer'),
-            self::enumCategory($b['category'] ?? 'custom'),
-            self::intOr($b['rack_u'] ?? 1, 1, 1, 4),
-            self::enumWidth($b['rack_width'] ?? 'full'),
-            isset($b['weight_kg']) ? (float) $b['weight_kg'] : null,
-            isset($b['power_w']) ? (int) $b['power_w'] : 0,
-            isset($b['depth_mm']) ? (int) $b['depth_mm'] : null,
-            $b['panel_front_svg'] ?? null,
-            $b['panel_rear_svg'] ?? null,
-            self::jsonOrNull($b['panel_front_ports'] ?? null),
-            self::jsonOrNull($b['panel_rear_ports'] ?? null),
-            self::nullableString($b, 'notes'),
-            !empty($b['is_public']) ? 1 : 0,
+            $manufacturer,
+            $category,
+            $rackU,
+            $rackWidth,
+            $weightKg,
+            $powerW,
+            $depthMm,
+            $pfs,
+            $prs,
+            $pfp,
+            $prp,
+            $notes,
+            $isPublic,
             $did,
         ]);
         JsonResponse::send(self::row($did));

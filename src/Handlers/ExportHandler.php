@@ -90,7 +90,13 @@ final class ExportHandler
         }
         unset($c);
 
-        $st = $pdo->prepare('SELECT * FROM ef_project_racks_links WHERE project_id=?');
+        $st = $pdo->prepare(
+            'SELECT l.*, a.name AS rack_a_name, b.name AS rack_b_name
+             FROM ef_project_racks_links l
+             INNER JOIN ef_rack_instances a ON a.id = l.rack_a_id
+             INNER JOIN ef_rack_instances b ON b.id = l.rack_b_id
+             WHERE l.project_id=? ORDER BY l.id'
+        );
         $st->execute([$pid]);
         $rackLinks = $st->fetchAll();
 

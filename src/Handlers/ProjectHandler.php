@@ -295,12 +295,19 @@ final class ProjectHandler
     private static function connectionsForProject(int $projectId): array
     {
         $sql = 'SELECT c.*,
+                ri1.name AS src_rack_name, ri2.name AS dst_rack_name,
                 s1.rack_id AS src_rack_id, s1.custom_name AS src_custom_name, s1.device_template_id AS src_device_template_id,
-                s2.rack_id AS dst_rack_id, s2.custom_name AS dst_custom_name, s2.device_template_id AS dst_device_template_id
+                s2.rack_id AS dst_rack_id, s2.custom_name AS dst_custom_name, s2.device_template_id AS dst_device_template_id,
+                d1.name AS src_device_name, d2.name AS dst_device_name
                 FROM ef_connections c
                 INNER JOIN ef_rack_slots s1 ON s1.id = c.src_slot_id
                 INNER JOIN ef_rack_slots s2 ON s2.id = c.dst_slot_id
-                WHERE c.project_id = ?';
+                INNER JOIN ef_rack_instances ri1 ON ri1.id = s1.rack_id
+                INNER JOIN ef_rack_instances ri2 ON ri2.id = s2.rack_id
+                INNER JOIN ef_device_templates d1 ON d1.id = s1.device_template_id
+                INNER JOIN ef_device_templates d2 ON d2.id = s2.device_template_id
+                WHERE c.project_id = ?
+                ORDER BY c.id';
         $st = DB::pdo()->prepare($sql);
         $st->execute([$projectId]);
         return $st->fetchAll();
@@ -309,7 +316,12 @@ final class ProjectHandler
     /** @return list<array<string, mixed>> */
     private static function rackLinksForProject(int $projectId): array
     {
-        $st = DB::pdo()->prepare('SELECT * FROM ef_project_racks_links WHERE project_id=?');
+        $sql = 'SELECT l.*, a.name AS rack_a_name, b.name AS rack_b_name
+                FROM ef_project_racks_links l
+                INNER JOIN ef_rack_instances a ON a.id = l.rack_a_id
+                INNER JOIN ef_rack_instances b ON b.id = l.rack_b_id
+                WHERE l.project_id=? ORDER BY l.id';
+        $st = DB::pdo()->prepare($sql);
         $st->execute([$projectId]);
         return $st->fetchAll();
     }
