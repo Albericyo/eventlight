@@ -7,66 +7,53 @@
   const NS = 'http://www.w3.org/2000/svg';
 
   /**
-   * sizeFrac ≈ fraction de la largeur d’une case de grille (1 ≈ toute la largeur 19" / 10 par U).
-   * designSpan ≈ plus grande dimension du dessin vectoriel (avant scale), pour ne pas dépasser la case.
-   * @type {Record<string, { label: string, r: number, sizeFrac: number, designSpan: number, signal?: string }>}
+   * span = part de la largeur du panneau occupée horizontalement (1.0 = toute la largeur).
+   * Schuko ≈ 1/10 ; seul XLR 3 pin (audio) ; DMX en 3 ou 5 pin — nickel vs vert.
    */
+  /** @type {Record<string, { label: string, r: number, span: number, signal?: string }>} */
   const PORT_TYPES = {
-    xlr_f: { label: 'XLR femelle (3 pts)', r: 10, sizeFrac: 0.44, designSpan: 20, signal: 'audio_analog' },
-    xlr_m: { label: 'XLR mâle (3 pts)', r: 10, sizeFrac: 0.44, designSpan: 20, signal: 'audio_analog' },
-    xlr5_f: { label: 'XLR5 femelle (DMX)', r: 10, sizeFrac: 0.44, designSpan: 20, signal: 'dmx' },
-    xlr5_m: { label: 'XLR5 mâle (DMX)', r: 10, sizeFrac: 0.44, designSpan: 20, signal: 'dmx' },
-    jack_ts: { label: 'Jack 6.35 TS', r: 8, sizeFrac: 0.38, designSpan: 16, signal: 'audio_analog' },
-    jack_trs: { label: 'Jack 6.35 TRS', r: 8, sizeFrac: 0.38, designSpan: 16, signal: 'audio_analog' },
-    jack_mini: { label: 'Jack 3.5 mm', r: 6, sizeFrac: 0.3, designSpan: 10, signal: 'audio_analog' },
-    rj45: { label: 'RJ45', r: 11, sizeFrac: 0.5, designSpan: 18, signal: 'ethernet' },
-    ethercon: { label: 'EtherCON', r: 10, sizeFrac: 0.5, designSpan: 22, signal: 'ethernet' },
-    speakon_2: { label: 'Speakon NL2', r: 10, sizeFrac: 0.5, designSpan: 22, signal: 'audio_analog' },
-    speakon_4: { label: 'Speakon NL4', r: 11, sizeFrac: 0.52, designSpan: 22, signal: 'audio_analog' },
-    powercon_in: { label: 'PowerCON entrée (bleu)', r: 10, sizeFrac: 0.5, designSpan: 20, signal: 'power' },
-    powercon_out: { label: 'PowerCON sortie (gris)', r: 10, sizeFrac: 0.5, designSpan: 20, signal: 'power' },
-    iec_in: { label: 'IEC C14 (entrée secteur)', r: 12, sizeFrac: 0.88, designSpan: 22, signal: 'power' },
-    iec_out: { label: 'IEC C13 (sortie)', r: 12, sizeFrac: 0.88, designSpan: 22, signal: 'power' },
-    schuko_f: { label: 'Prise secteur (Schuko F)', r: 14, sizeFrac: 0.95, designSpan: 24, signal: 'power' },
-    schuko_m: { label: 'Fiche secteur (Schuko M)', r: 14, sizeFrac: 0.95, designSpan: 25, signal: 'power' },
-    usb_a: { label: 'USB-A', r: 8, sizeFrac: 0.36, designSpan: 14, signal: 'other' },
-    usb_c: { label: 'USB-C', r: 7, sizeFrac: 0.3, designSpan: 12, signal: 'other' },
-    hdmi: { label: 'HDMI', r: 12, sizeFrac: 0.48, designSpan: 20, signal: 'video' },
-    bnc: { label: 'BNC', r: 9, sizeFrac: 0.36, designSpan: 18, signal: 'video' },
-    led_indicator: { label: 'LED', r: 4, sizeFrac: 0.2, designSpan: 8, signal: 'other' },
-    button: { label: 'Bouton', r: 7, sizeFrac: 0.32, designSpan: 14, signal: 'other' },
-    display: { label: 'Écran', r: 14, sizeFrac: 0.7, designSpan: 28, signal: 'other' },
-    knob: { label: 'Potentiomètre', r: 11, sizeFrac: 0.48, designSpan: 22, signal: 'other' },
+    xlr3_in: { label: 'XLR 3 pin IN', r: 10, span: 0.052, signal: 'audio_analog' },
+    xlr3_out: { label: 'XLR 3 pin OUT', r: 10, span: 0.052, signal: 'audio_analog' },
+    dmx3_in: { label: 'DMX 3 pin IN', r: 10, span: 0.052, signal: 'dmx' },
+    dmx3_out: { label: 'DMX 3 pin OUT', r: 10, span: 0.052, signal: 'dmx' },
+    dmx5_in: { label: 'DMX 5 pin IN', r: 10, span: 0.054, signal: 'dmx' },
+    dmx5_out: { label: 'DMX 5 pin OUT', r: 10, span: 0.054, signal: 'dmx' },
+    jack_ts: { label: 'Jack 6.35 TS', r: 8, span: 0.042, signal: 'audio_analog' },
+    jack_trs: { label: 'Jack 6.35 TRS', r: 8, span: 0.042, signal: 'audio_analog' },
+    jack_mini: { label: 'Jack 3.5 mm', r: 6, span: 0.035, signal: 'audio_analog' },
+    rj45: { label: 'RJ45', r: 11, span: 0.058, signal: 'ethernet' },
+    ethercon: { label: 'EtherCON', r: 10, span: 0.055, signal: 'ethernet' },
+    speakon_2: { label: 'Speakon NL2', r: 10, span: 0.052, signal: 'audio_analog' },
+    speakon_4: { label: 'Speakon NL4', r: 11, span: 0.055, signal: 'audio_analog' },
+    powercon_in: { label: 'PowerCON entrée (bleu)', r: 10, span: 0.052, signal: 'power' },
+    powercon_out: { label: 'PowerCON sortie (gris)', r: 10, span: 0.052, signal: 'power' },
+    iec_in: { label: 'IEC C14 (entrée secteur)', r: 12, span: 0.085, signal: 'power' },
+    iec_out: { label: 'IEC C13 (sortie)', r: 12, span: 0.085, signal: 'power' },
+    schuko_f: { label: 'Prise secteur (Schuko F)', r: 14, span: 0.1, signal: 'power' },
+    schuko_m: { label: 'Fiche secteur (Schuko M)', r: 14, span: 0.1, signal: 'power' },
+    usb_a: { label: 'USB-A', r: 8, span: 0.038, signal: 'other' },
+    usb_c: { label: 'USB-C', r: 7, span: 0.032, signal: 'other' },
+    hdmi: { label: 'HDMI', r: 12, span: 0.068, signal: 'video' },
+    bnc: { label: 'BNC', r: 9, span: 0.045, signal: 'video' },
+    led_indicator: { label: 'LED', r: 4, span: 0.022, signal: 'other' },
+    button: { label: 'Bouton', r: 7, span: 0.038, signal: 'other' },
+    display: { label: 'Écran', r: 14, span: 0.078, signal: 'other' },
+    knob: { label: 'Potentiomètre', r: 11, span: 0.055, signal: 'other' },
   };
-
-  const DEFAULT_DESIGN_SPAN = 20;
-
-  function defaultType(type) {
-    if (!type || typeof type !== 'string') return 'xlr_f';
-    if (PORT_TYPES[type]) return type;
-    const legacy = {
-      speakon: 'speakon_4',
-      xlr3: 'xlr_f',
-      dmx: 'xlr5_f',
-      power: 'iec_in',
-      iec: 'iec_in',
-    };
-    return legacy[type] || 'xlr_f';
-  }
-
-  /** Échelle : taille dessin × scale ≈ sizeFrac × largeur de case (sans dépasser grâce à designSpan). */
-  function visualScaleForType(type, cellWidth) {
-    const w = Math.max(24, Number(cellWidth) || 45);
-    const id = defaultType(type);
-    const meta = PORT_TYPES[id];
-    const frac = Math.max(0.12, Math.min(1.25, meta && typeof meta.sizeFrac === 'number' ? meta.sizeFrac : 0.44));
-    const span = Math.max(8, meta && typeof meta.designSpan === 'number' ? meta.designSpan : DEFAULT_DESIGN_SPAN);
-    const s = (frac * w) / span;
-    return Math.max(0.16, Math.min(2.5, s));
-  }
 
   function stroke() {
     return '#9aa3b2';
+  }
+  /**Contour « nickel » pour XLR 3 pts (audio) — distinct du vert DMX. */
+  function strokeXlr3() {
+    return '#b8c5d4';
+  }
+  /**Contour DMX / éclairage — vert lisible sur fond sombre. */
+  function strokeDmx() {
+    return '#00e676';
+  }
+  function fillDmxShell() {
+    return '#0d1814';
   }
   function fillDark() {
     return '#15181d';
@@ -80,20 +67,12 @@
 
   /**
    * Dessine la forme centrée sur (0,0) dans le groupe g.
-   * @param {number} [cellWidth] largeur d’une case grille (px dans le viewBox), ex. 450/10
    */
-  function appendShapeToGroup(g, type, color, cellWidth) {
+  function appendShapeToGroup(g, type, color) {
     const st = stroke();
     const fd = fillDark();
     const fm = fillMetal();
     const ac = accent(color);
-    const tId = defaultType(type);
-    const cw = cellWidth != null && !Number.isNaN(Number(cellWidth)) ? Number(cellWidth) : 45;
-    const sc = visualScaleForType(tId, cw);
-    const inner = document.createElementNS(NS, 'g');
-    inner.setAttribute('transform', `scale(${sc})`);
-    g.appendChild(inner);
-    const tg = inner;
 
     function circle(cx, cy, r, opt) {
       const el = document.createElementNS(NS, 'circle');
@@ -105,7 +84,7 @@
         if (opt.stroke) el.setAttribute('stroke', opt.stroke);
         if (opt.sw != null) el.setAttribute('stroke-width', String(opt.sw));
       }
-      tg.appendChild(el);
+      g.appendChild(el);
     }
 
     function rect(x, y, w, h, rx, opt) {
@@ -120,7 +99,7 @@
         if (opt.stroke) el.setAttribute('stroke', opt.stroke);
         if (opt.sw != null) el.setAttribute('stroke-width', String(opt.sw));
       }
-      tg.appendChild(el);
+      g.appendChild(el);
     }
 
     function line(x1, y1, x2, y2, opt) {
@@ -133,7 +112,7 @@
         if (opt.stroke) el.setAttribute('stroke', opt.stroke);
         if (opt.sw != null) el.setAttribute('stroke-width', String(opt.sw));
       }
-      tg.appendChild(el);
+      g.appendChild(el);
     }
 
     function path(d, opt) {
@@ -145,52 +124,87 @@
         if (opt.sw != null) el.setAttribute('stroke-width', String(opt.sw));
         if (opt.fillRule) el.setAttribute('fill-rule', opt.fillRule);
       }
-      tg.appendChild(el);
+      g.appendChild(el);
     }
 
-    const type = tId;
-
-    // —— XLR femelle : coque circulaire + 3 trous (triangle) ——
-    if (type === 'xlr_f') {
-      circle(0, 0, 10, { fill: fd, stroke: st, sw: 1.2 });
+    // —— XLR 3 pin IN : nickel + languette + 3 trous ——
+    if (type === 'xlr3_in') {
+      const sx = strokeXlr3();
+      rect(-3, -12.2, 6, 3, 0.6, { fill: fm, stroke: sx, sw: 0.5 });
+      circle(0, 0, 10, { fill: fd, stroke: sx, sw: 1.35 });
       const ang = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
       for (let i = 0; i < 3; i++) {
         const a = ang[i] - Math.PI / 2;
-        circle(Math.cos(a) * 4.2, Math.sin(a) * 4.2, 1.8, { fill: '#0a0c0f', stroke: '#555', sw: 0.5 });
+        circle(Math.cos(a) * 4.2, Math.sin(a) * 4.2, 1.8, { fill: '#0a0c0f', stroke: '#5a6a78', sw: 0.5 });
       }
-      circle(0, 0, 2.2, { fill: '#333', stroke: '#666', sw: 0.4 });
+      circle(0, 0, 2.2, { fill: '#333944', stroke: '#7a8a9a', sw: 0.45 });
       return;
     }
 
-    // —— XLR mâle : 3 broches + coque ——
-    if (type === 'xlr_m') {
-      circle(0, 0, 10, { fill: fd, stroke: st, sw: 1.2 });
+    // —— XLR 3 pin OUT : nickel + languette + 3 broches ——
+    if (type === 'xlr3_out') {
+      const sx = strokeXlr3();
+      rect(-3, -12.2, 6, 3, 0.6, { fill: fm, stroke: sx, sw: 0.5 });
+      circle(0, 0, 10, { fill: fd, stroke: sx, sw: 1.35 });
       const ang = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
       for (let i = 0; i < 3; i++) {
         const a = ang[i] - Math.PI / 2;
-        line(Math.cos(a) * 2, Math.sin(a) * 2, Math.cos(a) * 6.5, Math.sin(a) * 6.5, { stroke: '#c9d0dc', sw: 1.8 });
-        circle(Math.cos(a) * 7.2, Math.sin(a) * 7.2, 1.2, { fill: '#e8ecf0', stroke: '#888', sw: 0.4 });
+        line(Math.cos(a) * 2, Math.sin(a) * 2, Math.cos(a) * 6.5, Math.sin(a) * 6.5, { stroke: '#d8dde6', sw: 1.8 });
+        circle(Math.cos(a) * 7.2, Math.sin(a) * 7.2, 1.2, { fill: '#eef1f6', stroke: '#8899aa', sw: 0.45 });
       }
-      circle(0, 0, 2, { fill: fm, stroke: '#666', sw: 0.4 });
+      circle(0, 0, 2, { fill: fm, stroke: '#7a8a9a', sw: 0.45 });
       return;
     }
 
-    // —— XLR5 / DMX 5 broches : 5 trous ou 5 broches ——
-    if (type === 'xlr5_f') {
-      circle(0, 0, 10, { fill: fd, stroke: '#7c4dff', sw: 1.2 });
-      for (let i = 0; i < 5; i++) {
-        const a = (i / 5) * 2 * Math.PI - Math.PI / 2;
-        circle(Math.cos(a) * 5, Math.sin(a) * 5, 1.4, { fill: '#0a0c0f', stroke: '#555', sw: 0.4 });
+    // —— DMX 3 pin IN / OUT (même géométrie que XLR 3, coque verte) ——
+    if (type === 'dmx3_in') {
+      const sx = strokeDmx();
+      const dfill = fillDmxShell();
+      rect(-3, -12.2, 6, 3, 0.6, { fill: fm, stroke: sx, sw: 0.5 });
+      circle(0, 0, 10, { fill: dfill, stroke: sx, sw: 1.35 });
+      const ang = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
+      for (let i = 0; i < 3; i++) {
+        const a = ang[i] - Math.PI / 2;
+        circle(Math.cos(a) * 4.2, Math.sin(a) * 4.2, 1.8, { fill: '#050807', stroke: '#1b5e20', sw: 0.5 });
       }
-      circle(0, 0, 1.8, { fill: '#333', stroke: '#666', sw: 0.3 });
+      circle(0, 0, 2.2, { fill: '#1b3a25', stroke: sx, sw: 0.45 });
       return;
     }
-    if (type === 'xlr5_m') {
-      circle(0, 0, 10, { fill: fd, stroke: '#7c4dff', sw: 1.2 });
+    if (type === 'dmx3_out') {
+      const sx = strokeDmx();
+      const dfill = fillDmxShell();
+      rect(-3, -12.2, 6, 3, 0.6, { fill: fm, stroke: sx, sw: 0.5 });
+      circle(0, 0, 10, { fill: dfill, stroke: sx, sw: 1.35 });
+      const ang = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
+      for (let i = 0; i < 3; i++) {
+        const a = ang[i] - Math.PI / 2;
+        line(Math.cos(a) * 2, Math.sin(a) * 2, Math.cos(a) * 6.5, Math.sin(a) * 6.5, { stroke: '#b9f6ca', sw: 1.8 });
+        circle(Math.cos(a) * 7.2, Math.sin(a) * 7.2, 1.2, { fill: '#e8f8ee', stroke: '#2e7d32', sw: 0.45 });
+      }
+      circle(0, 0, 2, { fill: '#1b3a25', stroke: sx, sw: 0.45 });
+      return;
+    }
+
+    // —— DMX 5 pin IN / OUT ——
+    if (type === 'dmx5_in') {
+      const sx = strokeDmx();
+      const dfill = fillDmxShell();
+      circle(0, 0, 10, { fill: dfill, stroke: sx, sw: 1.45 });
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * 2 * Math.PI - Math.PI / 2;
-        line(Math.cos(a) * 2.5, Math.sin(a) * 2.5, Math.cos(a) * 7, Math.sin(a) * 7, { stroke: '#c9d0dc', sw: 1.2 });
-        circle(Math.cos(a) * 7.5, Math.sin(a) * 7.5, 1, { fill: '#e8ecf0', stroke: '#888', sw: 0.3 });
+        circle(Math.cos(a) * 5, Math.sin(a) * 5, 1.45, { fill: '#050807', stroke: '#1b5e20', sw: 0.45 });
+      }
+      circle(0, 0, 1.9, { fill: '#1b3a25', stroke: sx, sw: 0.35 });
+      return;
+    }
+    if (type === 'dmx5_out') {
+      const sx = strokeDmx();
+      const dfill = fillDmxShell();
+      circle(0, 0, 10, { fill: dfill, stroke: sx, sw: 1.45 });
+      for (let i = 0; i < 5; i++) {
+        const a = (i / 5) * 2 * Math.PI - Math.PI / 2;
+        line(Math.cos(a) * 2.5, Math.sin(a) * 2.5, Math.cos(a) * 7, Math.sin(a) * 7, { stroke: '#b9f6ca', sw: 1.25 });
+        circle(Math.cos(a) * 7.5, Math.sin(a) * 7.5, 1.05, { fill: '#e8f8ee', stroke: '#2e7d32', sw: 0.35 });
       }
       return;
     }
@@ -367,14 +381,16 @@
   }
 
   /**
-   * Fragment SVG (chaîne) pour export — synchro avec appendShapeToGroup (sans scale).
+   * Fragment SVG (chaîne) pour export — doit rester synchro avec appendShapeToGroup.
    */
-  function shapeToSvgStringRaw(type, color) {
-    type = defaultType(type);
+  function shapeToSvgString(type, color) {
     const st = '#9aa3b2';
     const fd = '#15181d';
     const fm = '#2a3140';
     const ac = color || '#5a6a85';
+    const stXlr3 = '#b8c5d4';
+    const stDmx = '#00e676';
+    const fdDmx = '#0d1814';
 
     const esc = (s) =>
       String(s)
@@ -383,19 +399,22 @@
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;');
 
-    if (type === 'xlr_f') {
+    if (type === 'xlr3_in') {
       let s =
-        `<circle cx="0" cy="0" r="10" fill="${fd}" stroke="${st}" stroke-width="1.2"/>`;
+        `<rect x="-3" y="-12.2" width="6" height="3" rx="0.6" fill="${fm}" stroke="${stXlr3}" stroke-width="0.5"/>` +
+        `<circle cx="0" cy="0" r="10" fill="${fd}" stroke="${stXlr3}" stroke-width="1.35"/>`;
       const ang = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
       for (let i = 0; i < 3; i++) {
         const a = ang[i] - Math.PI / 2;
-        s += `<circle cx="${(Math.cos(a) * 4.2).toFixed(2)}" cy="${(Math.sin(a) * 4.2).toFixed(2)}" r="1.8" fill="#0a0c0f" stroke="#555" stroke-width="0.5"/>`;
+        s += `<circle cx="${(Math.cos(a) * 4.2).toFixed(2)}" cy="${(Math.sin(a) * 4.2).toFixed(2)}" r="1.8" fill="#0a0c0f" stroke="#5a6a78" stroke-width="0.5"/>`;
       }
-      s += `<circle cx="0" cy="0" r="2.2" fill="#333" stroke="#666" stroke-width="0.4"/>`;
+      s += `<circle cx="0" cy="0" r="2.2" fill="#333944" stroke="#7a8a9a" stroke-width="0.45"/>`;
       return s;
     }
-    if (type === 'xlr_m') {
-      let s = `<circle cx="0" cy="0" r="10" fill="${fd}" stroke="${st}" stroke-width="1.2"/>`;
+    if (type === 'xlr3_out') {
+      let s =
+        `<rect x="-3" y="-12.2" width="6" height="3" rx="0.6" fill="${fm}" stroke="${stXlr3}" stroke-width="0.5"/>` +
+        `<circle cx="0" cy="0" r="10" fill="${fd}" stroke="${stXlr3}" stroke-width="1.35"/>`;
       const ang = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
       for (let i = 0; i < 3; i++) {
         const a = ang[i] - Math.PI / 2;
@@ -403,31 +422,60 @@
           y1 = Math.sin(a) * 2,
           x2 = Math.cos(a) * 6.5,
           y2 = Math.sin(a) * 6.5;
-        s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c9d0dc" stroke-width="1.8"/>`;
-        s += `<circle cx="${(Math.cos(a) * 7.2).toFixed(2)}" cy="${(Math.sin(a) * 7.2).toFixed(2)}" r="1.2" fill="#e8ecf0" stroke="#888" stroke-width="0.4"/>`;
+        s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#d8dde6" stroke-width="1.8"/>`;
+        s += `<circle cx="${(Math.cos(a) * 7.2).toFixed(2)}" cy="${(Math.sin(a) * 7.2).toFixed(2)}" r="1.2" fill="#eef1f6" stroke="#8899aa" stroke-width="0.45"/>`;
       }
-      s += `<circle cx="0" cy="0" r="2" fill="${fm}" stroke="#666" stroke-width="0.4"/>`;
+      s += `<circle cx="0" cy="0" r="2" fill="${fm}" stroke="#7a8a9a" stroke-width="0.45"/>`;
       return s;
     }
-    if (type === 'xlr5_f') {
-      let s = `<circle cx="0" cy="0" r="10" fill="${fd}" stroke="#7c4dff" stroke-width="1.2"/>`;
+    if (type === 'dmx3_in') {
+      let s =
+        `<rect x="-3" y="-12.2" width="6" height="3" rx="0.6" fill="${fm}" stroke="${stDmx}" stroke-width="0.5"/>` +
+        `<circle cx="0" cy="0" r="10" fill="${fdDmx}" stroke="${stDmx}" stroke-width="1.35"/>`;
+      const ang = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
+      for (let i = 0; i < 3; i++) {
+        const a = ang[i] - Math.PI / 2;
+        s += `<circle cx="${(Math.cos(a) * 4.2).toFixed(2)}" cy="${(Math.sin(a) * 4.2).toFixed(2)}" r="1.8" fill="#050807" stroke="#1b5e20" stroke-width="0.5"/>`;
+      }
+      s += `<circle cx="0" cy="0" r="2.2" fill="#1b3a25" stroke="${stDmx}" stroke-width="0.45"/>`;
+      return s;
+    }
+    if (type === 'dmx3_out') {
+      let s =
+        `<rect x="-3" y="-12.2" width="6" height="3" rx="0.6" fill="${fm}" stroke="${stDmx}" stroke-width="0.5"/>` +
+        `<circle cx="0" cy="0" r="10" fill="${fdDmx}" stroke="${stDmx}" stroke-width="1.35"/>`;
+      const ang = [0, (2 * Math.PI) / 3, (4 * Math.PI) / 3];
+      for (let i = 0; i < 3; i++) {
+        const a = ang[i] - Math.PI / 2;
+        const x1 = Math.cos(a) * 2,
+          y1 = Math.sin(a) * 2,
+          x2 = Math.cos(a) * 6.5,
+          y2 = Math.sin(a) * 6.5;
+        s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#b9f6ca" stroke-width="1.8"/>`;
+        s += `<circle cx="${(Math.cos(a) * 7.2).toFixed(2)}" cy="${(Math.sin(a) * 7.2).toFixed(2)}" r="1.2" fill="#e8f8ee" stroke="#2e7d32" stroke-width="0.45"/>`;
+      }
+      s += `<circle cx="0" cy="0" r="2" fill="#1b3a25" stroke="${stDmx}" stroke-width="0.45"/>`;
+      return s;
+    }
+    if (type === 'dmx5_in') {
+      let s = `<circle cx="0" cy="0" r="10" fill="${fdDmx}" stroke="${stDmx}" stroke-width="1.45"/>`;
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * 2 * Math.PI - Math.PI / 2;
-        s += `<circle cx="${(Math.cos(a) * 5).toFixed(2)}" cy="${(Math.sin(a) * 5).toFixed(2)}" r="1.4" fill="#0a0c0f" stroke="#555" stroke-width="0.4"/>`;
+        s += `<circle cx="${(Math.cos(a) * 5).toFixed(2)}" cy="${(Math.sin(a) * 5).toFixed(2)}" r="1.45" fill="#050807" stroke="#1b5e20" stroke-width="0.45"/>`;
       }
-      s += `<circle cx="0" cy="0" r="1.8" fill="#333" stroke="#666" stroke-width="0.3"/>`;
+      s += `<circle cx="0" cy="0" r="1.9" fill="#1b3a25" stroke="${stDmx}" stroke-width="0.35"/>`;
       return s;
     }
-    if (type === 'xlr5_m') {
-      let s = `<circle cx="0" cy="0" r="10" fill="${fd}" stroke="#7c4dff" stroke-width="1.2"/>`;
+    if (type === 'dmx5_out') {
+      let s = `<circle cx="0" cy="0" r="10" fill="${fdDmx}" stroke="${stDmx}" stroke-width="1.45"/>`;
       for (let i = 0; i < 5; i++) {
         const a = (i / 5) * 2 * Math.PI - Math.PI / 2;
         const x1 = Math.cos(a) * 2.5,
           y1 = Math.sin(a) * 2.5,
           x2 = Math.cos(a) * 7,
           y2 = Math.sin(a) * 7;
-        s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#c9d0dc" stroke-width="1.2"/>`;
-        s += `<circle cx="${(Math.cos(a) * 7.5).toFixed(2)}" cy="${(Math.sin(a) * 7.5).toFixed(2)}" r="1" fill="#e8ecf0" stroke="#888" stroke-width="0.3"/>`;
+        s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="#b9f6ca" stroke-width="1.25"/>`;
+        s += `<circle cx="${(Math.cos(a) * 7.5).toFixed(2)}" cy="${(Math.sin(a) * 7.5).toFixed(2)}" r="1.05" fill="#e8f8ee" stroke="#2e7d32" stroke-width="0.35"/>`;
       }
       return s;
     }
@@ -593,25 +641,41 @@
     return `<circle cx="0" cy="0" r="8" fill="${fd}" stroke="${esc(ac)}" stroke-width="1"/>`;
   }
 
-  /**
-   * @param {string} type
-   * @param {string} color
-   * @param {number} [cellWidth] largeur d’une case grille — requis pour taille relative au type
-   */
-  function shapeToSvgString(type, color, cellWidth) {
-    const raw = shapeToSvgStringRaw(type, color);
-    const cw = cellWidth != null ? Number(cellWidth) : 45;
-    const sc = visualScaleForType(type, cw);
-    if (Math.abs(sc - 1) < 1e-4) return raw;
-    return `<g transform="scale(${sc})">${raw}</g>`;
+  function defaultType(type) {
+    if (!type || typeof type !== 'string') return 'xlr3_in';
+    if (PORT_TYPES[type]) return type;
+    const legacy = {
+      speakon: 'speakon_4',
+      xlr3: 'xlr3_in',
+      xlr3_f: 'xlr3_in',
+      xlr3_m: 'xlr3_out',
+      xlr_f: 'xlr3_in',
+      xlr_m: 'xlr3_out',
+      xlr5_f: 'dmx5_in',
+      xlr5_m: 'dmx5_out',
+      dmx3_f: 'dmx3_in',
+      dmx3_m: 'dmx3_out',
+      dmx5_f: 'dmx5_in',
+      dmx5_m: 'dmx5_out',
+      dmx: 'dmx5_in',
+      power: 'iec_in',
+      iec: 'iec_in',
+    };
+    return legacy[type] || 'xlr3_in';
+  }
+
+  /** Encombrement horizontal (fraction de la largeur du panneau) pour clamp et anti-dépassement. */
+  function portSpan(type) {
+    const t = defaultType(type);
+    const m = PORT_TYPES[t];
+    return m && typeof m.span === 'number' ? m.span : 0.055;
   }
 
   global.PortShapes = {
     PORT_TYPES,
     appendShapeToGroup,
     shapeToSvgString,
-    shapeToSvgStringRaw,
     defaultType,
-    visualScaleForType,
+    portSpan,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

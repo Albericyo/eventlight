@@ -4,7 +4,7 @@
   const WIDTH = { full: 450, half: 213, third: 140 };
   const U_H = 44;
 
-  /** Emplacements max par ligne (largeur 19") : full = 10, demi-rack et tiers proportionnels. */
+  /** Référence 19" (demi / tiers) — plus de placement sur grille 10 cases : position horizontale libre par ligne U. */
   const SLOTS_PER_U = { full: 10, half: 5, third: 3 };
 
   /** Liste pour rétrocompatibilité — préférer PortShapes.PORT_TYPES */
@@ -17,7 +17,7 @@
       this.rackWidth = opts.rack_width || 'full';
       this.face = opts.face || 'front';
       this.ports = [];
-      this._paletteType = 'xlr_f';
+      this._paletteType = 'xlr3_in';
       this._svg = null;
       /** Évite un clic « ajouter » sur le fond juste après un drag depuis un port. */
       this._suppressGridClickUntil = 0;
@@ -27,69 +27,66 @@
       return SLOTS_PER_U[this.rackWidth] != null ? SLOTS_PER_U[this.rackWidth] : SLOTS_PER_U.full;
     }
 
+    _panelW() {
+      return WIDTH[this.rackWidth] || WIDTH.full;
+    }
+
     _maxPorts() {
-      return this._cols() * this.rackU;
+      return Math.max(64, this._cols() * this.rackU * 4);
     }
 
-    _cellFromXY(x, y) {
+    _rowFromY(y) {
+      return Math.max(0, Math.min(this.rackU - 1, Math.floor(y / U_H)));
+    }
+
+    _clampXNorm(xn, type) {
+      const PS = global.PortShapes;
+      const span = PS && PS.portSpan ? PS.portSpan(type || 'xlr3_in') : 0.055;
+      const lo = span / 2;
+      const hi = 1 - span / 2;
+      return Math.max(lo, Math.min(hi, xn));
+    }
+
+    _applyFreeXY(p) {
+      const w = this._panelW();
+      const PS = global.PortShapes;
+      const span = PS && PS.portSpan ? PS.portSpan(p.type || 'xlr3_in') : 0.055;
+      let row =
+        typeof p.row === 'number'
+          ? p.row
+          : typeof p.gridRow === 'number'
+            ? Math.floor(p.gridRow)
+            : this._rowFromY(Number(p.y) || U_H / 2);
+      row = Math.max(0, Math.min(this.rackU - 1, Math.floor(row)));
+      let xn;
+      if (typeof p.xNorm === 'number') {
+        xn = p.xNorm;
+      } else if (typeof p.gridCol === 'number') {
+        const cols = this._cols();
+        xn = (Math.max(0, Math.min(cols - 1, Math.floor(p.gridCol))) + 0.5) / cols;
+      } else {
+        xn = (Number(p.x) || w / 2) / w;
+      }
+      xn = this._clampXNorm(xn, p.type);
+      p.row = row;
+      p.xNorm = xn;
+      p.x = xn * w;
+      p.y = (row + 0.5) * U_H;
+    }
+
+    _syncLegacyGrid(p) {
       const cols = this._cols();
-      const w = WIDTH[this.rackWidth] || WIDTH.full;
-      const cw = w / cols;
-      const ch = U_H;
-      let col = Math.floor(x / cw);
-      let row = Math.floor(y / ch);
-      col = Math.max(0, Math.min(cols - 1, col));
-      row = Math.max(0, Math.min(this.rackU - 1, row));
-      return { col, row };
+      p.gridRow = p.row;
+      p.gridCol = Math.min(cols - 1, Math.max(0, Math.round(p.xNorm * cols - 0.5)));
     }
 
-    _cellCenter(col, row) {
-      const cols = this._cols();
-      const w = WIDTH[this.rackWidth] || WIDTH.full;
-      const cw = w / cols;
-      const ch = U_H;
-      return { x: (col + 0.5) * cw, y: (row + 0.5) * ch };
-    }
-
-    _applyGridToXY(p) {
-      const { x, y } = this._cellCenter(p.gridCol, p.gridRow);
-      p.x = x;
-      p.y = y;
-    }
-
-    /** Anciens JSON avec x/y libres → grille + dédoublonnage. */
+    /** Charge JSON : anciens ports (gridCol) → row + xNorm ; plusieurs ports sur une même ligne possibles. */
     _normalizePortsAfterLoad() {
-      const cols = this._cols();
-      const rows = this.rackU;
-      const used = new Set();
       const next = [];
       for (const raw of this.ports) {
+        if (!raw || typeof raw !== 'object') continue;
         const p = { ...raw };
-        if (typeof p.gridCol !== 'number' || typeof p.gridRow !== 'number') {
-          const c = this._cellFromXY(p.x ?? 0, p.y ?? 0);
-          p.gridCol = c.col;
-          p.gridRow = c.row;
-        }
-        p.gridCol = Math.max(0, Math.min(cols - 1, Math.floor(p.gridCol)));
-        p.gridRow = Math.max(0, Math.min(rows - 1, Math.floor(p.gridRow)));
-        let key = `${p.gridCol},${p.gridRow}`;
-        if (used.has(key)) {
-          let found = false;
-          for (let r = 0; r < rows && !found; r++) {
-            for (let c = 0; c < cols && !found; c++) {
-              const k = `${c},${r}`;
-              if (!used.has(k)) {
-                p.gridCol = c;
-                p.gridRow = r;
-                key = k;
-                found = true;
-              }
-            }
-          }
-          if (!found) continue;
-        }
-        used.add(key);
-        this._applyGridToXY(p);
+        this._applyFreeXY(p);
         next.push(p);
       }
       this.ports = next;
@@ -112,7 +109,10 @@
     }
 
     getPortsJson() {
-      this.ports.forEach((p) => this._applyGridToXY(p));
+      this.ports.forEach((p) => {
+        this._applyFreeXY(p);
+        this._syncLegacyGrid(p);
+      });
       return JSON.stringify(this.ports);
     }
 
@@ -121,31 +121,27 @@
       if (!PS) {
         return this._buildSvgStringLegacy();
       }
-      const w = WIDTH[this.rackWidth] || WIDTH.full;
+      const w = this._panelW();
       const h = U_H * this.rackU;
-      const cols = this._cols();
-      const cw = w / cols;
       let body = '';
       for (const p of this.ports) {
-        const gc = typeof p.gridCol === 'number' ? p.gridCol : this._cellFromXY(p.x ?? 0, p.y ?? 0).col;
-        const gr = typeof p.gridRow === 'number' ? p.gridRow : this._cellFromXY(p.x ?? 0, p.y ?? 0).row;
-        const { x, y } = this._cellCenter(gc, gr);
-        const t = PS.defaultType(p.type || 'xlr_f');
+        this._applyFreeXY(p);
+        const { x, y } = p;
+        const t = PS.defaultType(p.type || 'xlr3_in');
         const col = p.color || '#5a6a85';
-        const inner = PS.shapeToSvgString(t, col, cw);
+        const inner = PS.shapeToSvgString(t, col);
         body += `<g transform="translate(${x},${y})">${inner}</g>`;
       }
       return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w} ${h}">${body}</svg>`;
     }
 
     _buildSvgStringLegacy() {
-      const w = WIDTH[this.rackWidth] || WIDTH.full;
+      const w = this._panelW();
       const h = U_H * this.rackU;
       let body = '';
       for (const p of this.ports) {
-        const gc = typeof p.gridCol === 'number' ? p.gridCol : this._cellFromXY(p.x ?? 0, p.y ?? 0).col;
-        const gr = typeof p.gridRow === 'number' ? p.gridRow : this._cellFromXY(p.x ?? 0, p.y ?? 0).row;
-        const { x, y } = this._cellCenter(gc, gr);
+        this._applyFreeXY(p);
+        const { x, y } = p;
         const r = p.radius || 8;
         body += `<circle cx="${x}" cy="${y}" r="${r}" fill="#2a2d34" stroke="#888"/>`;
       }
@@ -168,10 +164,9 @@
 
     render() {
       const PS = global.PortShapes;
-      const w = WIDTH[this.rackWidth] || WIDTH.full;
+      const w = this._panelW();
       const h = U_H * this.rackU;
       const cols = this._cols();
-      const cw = w / cols;
       this.root.innerHTML = '';
       const wrap = document.createElement('div');
       wrap.className = 'panel-editor';
@@ -187,7 +182,7 @@
       sel.style.marginLeft = '8px';
       sel.style.marginTop = '0';
       const typesMap = PS ? PS.PORT_TYPES : {};
-      const keys = Object.keys(typesMap).length ? Object.keys(typesMap) : ['xlr_f', 'xlr_m', 'xlr5_f', 'rj45', 'iec_in', 'schuko_f'];
+      const keys = Object.keys(typesMap).length ? Object.keys(typesMap) : ['xlr3_in', 'xlr3_out', 'dmx3_in', 'dmx3_out', 'dmx5_in', 'dmx5_out', 'rj45', 'iec_in', 'schuko_f'];
       keys.forEach((id) => {
         const o = document.createElement('option');
         o.value = id;
@@ -204,7 +199,13 @@
       gridHint.style.marginLeft = '10px';
       gridHint.style.fontSize = '12px';
       gridHint.textContent =
-        '· Grille : ' + cols + ' × ' + this.rackU + 'U max (' + this._maxPorts() + ' prises) · 19" full = 10 / ligne';
+        '· ' +
+        this.rackU +
+        ' ligne(s) U · déplacement horizontal libre · XLR 3 / DMX en IN / OUT (nickel / vert) · ref. 19” (' +
+        cols +
+        ' unités) · max ~' +
+        this._maxPorts() +
+        ' ports';
       pal.appendChild(gridHint);
       wrap.appendChild(pal);
 
@@ -227,20 +228,16 @@
       svg.appendChild(frame);
 
       for (let row = 0; row < this.rackU; row++) {
-        for (let c = 0; c < cols; c++) {
-          const cell = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-          cell.setAttribute('x', String(c * cw));
-          cell.setAttribute('y', String(row * U_H));
-          cell.setAttribute('width', String(cw));
-          cell.setAttribute('height', String(U_H));
-          cell.setAttribute('fill', 'none');
-          cell.setAttribute('stroke', '#2a2d38');
-          cell.setAttribute('stroke-dasharray', '2 3');
-          cell.setAttribute('class', 'panel-grid-cell');
-          cell.setAttribute('data-grid-col', String(c));
-          cell.setAttribute('data-grid-row', String(row));
-          svg.appendChild(cell);
-        }
+        const band = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        band.setAttribute('x', '0');
+        band.setAttribute('y', String(row * U_H));
+        band.setAttribute('width', String(w));
+        band.setAttribute('height', String(U_H));
+        band.setAttribute('fill', 'rgba(22,24,30,0.45)');
+        band.setAttribute('stroke', '#2a2d38');
+        band.setAttribute('stroke-dasharray', '5 5');
+        band.setAttribute('class', 'panel-u-band');
+        svg.appendChild(band);
       }
 
       for (let u = 1; u < this.rackU; u++) {
@@ -249,20 +246,20 @@
         line.setAttribute('x2', String(w));
         line.setAttribute('y1', String(u * U_H));
         line.setAttribute('y2', String(u * U_H));
-        line.setAttribute('stroke', '#333');
+        line.setAttribute('stroke', '#444');
         svg.appendChild(line);
       }
 
       this.ports.forEach((p, idx) => {
-        this._applyGridToXY(p);
+        this._applyFreeXY(p);
         const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         g.setAttribute('data-idx', String(idx));
         g.style.cursor = 'grab';
         this._setGroupTransform(g, p.x, p.y);
 
         if (PS) {
-          const t = PS.defaultType(p.type || 'xlr_f');
-          PS.appendShapeToGroup(g, t, p.color, cw);
+          const t = PS.defaultType(p.type || 'xlr3_in');
+          PS.appendShapeToGroup(g, t, p.color);
         } else {
           const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
           c.setAttribute('r', String(p.radius || 8));
@@ -280,7 +277,6 @@
           this.render();
         });
 
-        /** Suppression sans double-clic (grille pleine / navigateurs qui cassent dblclick après re-render). */
         g.addEventListener('click', (ev) => {
           if (!ev.altKey) return;
           ev.stopPropagation();
@@ -293,14 +289,17 @@
           ev.stopPropagation();
           const port = this.ports[idx];
           if (!port) return;
-          const startCol = port.gridCol;
-          const startRow = port.gridRow;
           g.style.cursor = 'grabbing';
           const onMove = (e) => {
             const loc = this._loc(svg, e);
-            const { col, row } = this._cellFromXY(loc.x, loc.y);
-            const { x, y } = this._cellCenter(col, row);
-            this._setGroupTransform(g, x, y);
+            const row = this._rowFromY(loc.y);
+            let xn = loc.x / w;
+            xn = this._clampXNorm(xn, port.type);
+            port.row = row;
+            port.xNorm = xn;
+            port.x = xn * w;
+            port.y = (row + 0.5) * U_H;
+            this._setGroupTransform(g, port.x, port.y);
           };
           const onUp = (e) => {
             g.style.cursor = 'grab';
@@ -308,25 +307,13 @@
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onUp);
             const loc = this._loc(svg, e);
-            const { col, row } = this._cellFromXY(loc.x, loc.y);
-            if (col === startCol && row === startRow) {
-              /* Ne pas re-render : sinon le DOM est recréé entre les deux clics et le double-clic ne supprime jamais. */
-              this._applyGridToXY(port);
-              this._setGroupTransform(g, port.x, port.y);
-              return;
-            }
-            const j = this.ports.findIndex(
-              (p2, i) => i !== idx && p2.gridCol === col && p2.gridRow === row
-            );
-            if (j >= 0) {
-              this.ports[j].gridCol = startCol;
-              this.ports[j].gridRow = startRow;
-            }
-            port.gridCol = col;
-            port.gridRow = row;
-            this._applyGridToXY(port);
-            if (j >= 0) this._applyGridToXY(this.ports[j]);
-            this.render();
+            const row = this._rowFromY(loc.y);
+            let xn = loc.x / w;
+            xn = this._clampXNorm(xn, port.type);
+            port.row = row;
+            port.xNorm = xn;
+            this._applyFreeXY(port);
+            this._setGroupTransform(g, port.x, port.y);
           };
           document.addEventListener('mousemove', onMove);
           document.addEventListener('mouseup', onUp);
@@ -337,9 +324,8 @@
         if (ev.target.closest('g[data-idx]')) return;
         if (Date.now() < this._suppressGridClickUntil) return;
         const loc = this._loc(svg, ev);
-        const { col, row } = this._cellFromXY(loc.x, loc.y);
-        const taken = this.ports.some((p) => p.gridCol === col && p.gridRow === row);
-        if (taken) return;
+        const row = this._rowFromY(loc.y);
+        let xn = loc.x / w;
         if (this.ports.length >= this._maxPorts()) {
           return;
         }
@@ -347,17 +333,18 @@
         const PSg = global.PortShapes;
         const ptype = PSg ? PSg.defaultType(this._paletteType) : this._paletteType;
         const meta = PSg && PSg.PORT_TYPES[ptype] ? PSg.PORT_TYPES[ptype] : { r: 10, signal: 'audio_analog' };
+        xn = this._clampXNorm(xn, ptype);
         const np = {
           id,
           type: ptype,
-          gridCol: col,
-          gridRow: row,
+          row,
+          xNorm: xn,
           radius: meta.r || 10,
           label: '',
           signal: meta.signal || 'audio_analog',
           color: '#4f8ef7',
         };
-        this._applyGridToXY(np);
+        this._applyFreeXY(np);
         this.ports.push(np);
         this.render();
       });
@@ -368,7 +355,7 @@
       hint.style.fontSize = '12px';
       hint.style.marginTop = '8px';
       hint.innerHTML =
-        'Clic sur une case vide = ajouter · <strong>double-clic</strong> sur un connecteur = supprimer · ou <strong>Alt + clic</strong> pour supprimer · glisser pour déplacer (échange si occupé). Grille 19". Face vide possible — enregistrez pour sauver.';
+        'Clic sur une <strong>ligne U</strong> = ajouter le connecteur choisi à cet endroit horizontal · <strong>glisser</strong> pour le déplacer sur la ligne (ou changer de ligne) · <strong>double-clic</strong> ou <strong>Alt + clic</strong> sur un connecteur = supprimer. Face vide possible — enregistrez pour sauver.';
       wrap.appendChild(hint);
       this.root.appendChild(wrap);
     }

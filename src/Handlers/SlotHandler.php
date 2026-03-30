@@ -21,7 +21,7 @@ final class SlotHandler
         }
         self::assertRackOwner($rid, $uid);
         $st = DB::pdo()->prepare(
-            'SELECT s.*, d.name AS device_name, d.manufacturer, d.category
+            'SELECT s.*, d.name AS device_name, d.manufacturer, d.category, d.rack_width
              FROM ef_rack_slots s
              INNER JOIN ef_device_templates d ON d.id = s.device_template_id
              WHERE s.rack_id=?
@@ -43,9 +43,14 @@ final class SlotHandler
         self::assertRackOwner($rackId, $uid);
         self::assertDeviceVisible($deviceId, $uid);
         $slotU = (int) ($b['slot_u'] ?? 1);
-        $slotCol = (int) ($b['slot_col'] ?? 0);
         $devH = self::templateRackU($deviceId);
-        self::validateSlotPosition(null, $rackId, $slotU, $slotCol, $devH);
+        $rackW = self::templateRackWidth($deviceId);
+        $slotCol = array_key_exists('slot_col', $b)
+            ? (int) $b['slot_col']
+            : ($rackW === 'half' ? self::firstFreeHalfColumn($rackId, $slotU, $devH, null) : 0);
+        self::assertSlotColForWidth($rackW, $slotCol);
+        self::assertSameRackUAtSameSlotStart($rackId, $slotU, $devH, null);
+        self::validateSlotPosition(null, $rackId, $slotU, $slotCol, $devH, $rackW);
         $pdo = DB::pdo();
         try {
             $st = $pdo->prepare(
@@ -81,8 +86,11 @@ final class SlotHandler
         $slotU = array_key_exists('slot_u', $b) ? (int) $b['slot_u'] : (int) $slot['slot_u'];
         $slotCol = array_key_exists('slot_col', $b) ? (int) $b['slot_col'] : (int) $slot['slot_col'];
         $devH = self::templateRackU((int) $slot['device_template_id']);
+        $rackW = self::templateRackWidth((int) $slot['device_template_id']);
         if ($slotU !== (int) $slot['slot_u'] || $slotCol !== (int) $slot['slot_col']) {
-            self::validateSlotPosition($sid, (int) $slot['rack_id'], $slotU, $slotCol, $devH);
+            self::assertSlotColForWidth($rackW, $slotCol);
+            self::assertSameRackUAtSameSlotStart((int) $slot['rack_id'], $slotU, $devH, $sid);
+            self::validateSlotPosition($sid, (int) $slot['rack_id'], $slotU, $slotCol, $devH, $rackW);
         }
         try {
             $st = DB::pdo()->prepare(
@@ -220,9 +228,70 @@ final class SlotHandler
         return max(1, (int) ($r['rack_u'] ?? 1));
     }
 
-    /** Chevauchement d’intervalles U sur la même colonne (slot_col). */
-    private static function validateSlotPosition(?int $excludeSlotId, int $rackId, int $slotU, int $slotCol, int $heightU): void
+    private static function templateRackWidth(int $deviceTemplateId): string
     {
+        $st = DB::pdo()->prepare('SELECT rack_width FROM ef_device_templates WHERE id=? LIMIT 1');
+        $st->execute([$deviceTemplateId]);
+        $r = $st->fetch();
+        $w = (string) ($r['rack_width'] ?? 'full');
+        return in_array($w, ['full', 'half', 'third'], true) ? $w : 'full';
+    }
+
+    private static function assertSlotColForWidth(string $rackWidth, int $slotCol): void
+    {
+        if ($rackWidth === 'full' && $slotCol !== 0) {
+            JsonResponse::error('Un équipement pleine largeur doit être en colonne 0.', 422);
+        }
+        if ($rackWidth === 'half' && ($slotCol < 0 || $slotCol > 1)) {
+            JsonResponse::error('Colonne invalide pour half (0 = gauche, 1 = droite).', 422);
+        }
+        if ($rackWidth === 'third' && ($slotCol < 0 || $slotCol > 2)) {
+            JsonResponse::error('Colonne invalide pour third (0, 1 ou 2).', 422);
+        }
+    }
+
+    /** Tous les équipements commençant au même U doivent avoir la même hauteur (rack_u). */
+    private static function assertSameRackUAtSameSlotStart(int $rackId, int $slotU, int $rackUHeight, ?int $excludeSlotId): void
+    {
+        $sql = 'SELECT d.rack_u FROM ef_rack_slots s
+                INNER JOIN ef_device_templates d ON d.id = s.device_template_id
+                WHERE s.rack_id=? AND s.slot_u=?';
+        $params = [$rackId, $slotU];
+        if ($excludeSlotId !== null && $excludeSlotId > 0) {
+            $sql .= ' AND s.id<>?';
+            $params[] = $excludeSlotId;
+        }
+        $st = DB::pdo()->prepare($sql);
+        $st->execute($params);
+        while ($row = $st->fetch()) {
+            if ((int) $row['rack_u'] !== $rackUHeight) {
+                JsonResponse::error(
+                    'Sur la même ligne U, tous les équipements doivent avoir la même hauteur (U).',
+                    409
+                );
+            }
+        }
+    }
+
+    private static function firstFreeHalfColumn(int $rackId, int $slotU, int $heightU, ?int $excludeSlotId): int
+    {
+        foreach ([0, 1] as $col) {
+            if (! self::hasSlotConflict($excludeSlotId, $rackId, $slotU, $col, $heightU, 'half')) {
+                return $col;
+            }
+        }
+        JsonResponse::error('Aucune demi-place libre sur cette ligne.', 409);
+    }
+
+    /** Chevauchement U + largeur (full = toute la ligne, half/third = colonne). */
+    private static function validateSlotPosition(
+        ?int $excludeSlotId,
+        int $rackId,
+        int $slotU,
+        int $slotCol,
+        int $heightU,
+        string $rackWidth
+    ): void {
         $st = DB::pdo()->prepare('SELECT size_u FROM ef_rack_instances WHERE id=? LIMIT 1');
         $st->execute([$rackId]);
         $rack = $st->fetch();
@@ -230,7 +299,20 @@ final class SlotHandler
         if ($slotU < 1 || $slotU + $heightU - 1 > $sizeU) {
             JsonResponse::error('Position hors rack', 422);
         }
-        $sql = 'SELECT s.id, s.slot_u, s.slot_col, d.rack_u
+        if (self::hasSlotConflict($excludeSlotId, $rackId, $slotU, $slotCol, $heightU, $rackWidth)) {
+            JsonResponse::error('Emplacement déjà occupé (chevauchement)', 409);
+        }
+    }
+
+    private static function hasSlotConflict(
+        ?int $excludeSlotId,
+        int $rackId,
+        int $slotU,
+        int $slotCol,
+        int $heightU,
+        string $rackWidth
+    ): bool {
+        $sql = 'SELECT s.id, s.slot_u, s.slot_col, d.rack_u, d.rack_width
                 FROM ef_rack_slots s
                 INNER JOIN ef_device_templates d ON d.id = s.device_template_id
                 WHERE s.rack_id=?';
@@ -241,20 +323,41 @@ final class SlotHandler
         }
         $st = DB::pdo()->prepare($sql);
         $st->execute($params);
-        $mineLo = $slotU;
-        $mineHi = $slotU + $heightU - 1;
         while ($row = $st->fetch()) {
-            $oc = (int) $row['slot_col'];
-            if ($oc !== $slotCol) {
-                continue;
-            }
             $ou = (int) $row['slot_u'];
             $oh = max(1, (int) $row['rack_u']);
-            $oLo = $ou;
-            $oHi = $ou + $oh - 1;
-            if (max($mineLo, $oLo) <= min($mineHi, $oHi)) {
-                JsonResponse::error('Emplacement déjà occupé (chevauchement)', 409);
+            if (! self::uRangesOverlap($slotU, $heightU, $ou, $oh)) {
+                continue;
+            }
+            $theirW = self::normalizeRackWidth((string) ($row['rack_width'] ?? 'full'));
+            $theirCol = (int) $row['slot_col'];
+            if (self::horizontalConflict($rackWidth, $slotCol, $theirW, $theirCol)) {
+                return true;
             }
         }
+        return false;
+    }
+
+    private static function normalizeRackWidth(string $w): string
+    {
+        return in_array($w, ['full', 'half', 'third'], true) ? $w : 'full';
+    }
+
+    private static function uRangesOverlap(int $u1, int $h1, int $u2, int $h2): bool
+    {
+        $aHi = $u1 + $h1 - 1;
+        $bHi = $u2 + $h2 - 1;
+        return max($u1, $u2) <= min($aHi, $bHi);
+    }
+
+    /** Conflit horizontal si les deux occupent la même « tranche » de la ligne U. */
+    private static function horizontalConflict(string $w1, int $c1, string $w2, int $c2): bool
+    {
+        $w1 = self::normalizeRackWidth($w1);
+        $w2 = self::normalizeRackWidth($w2);
+        if ($w1 === 'full' || $w2 === 'full') {
+            return true;
+        }
+        return $c1 === $c2;
     }
 }

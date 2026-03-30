@@ -19,6 +19,8 @@
 
   const PANEL_W = { full: 450, half: 213, third: 140 };
   const PANEL_U_H = 44;
+  /** Une ligne de la liste rack = 1 U panneau + marge sous la ligne (voir .rack-slot-r). */
+  const RACK_LIST_U_STRIDE_PX = PANEL_U_H + 2;
   const PANEL_SLOTS_PER_U = { full: 10, half: 5, third: 3 };
 
   function parsePanelPorts(raw) {
@@ -37,50 +39,46 @@
 
   function portCenterOnPanel(panelW, rackW, rackU, p) {
     const cols = PANEL_SLOTS_PER_U[rackW] != null ? PANEL_SLOTS_PER_U[rackW] : PANEL_SLOTS_PER_U.full;
-    const cw = panelW / cols;
     const ch = PANEL_U_H;
+    const PS = typeof PortShapes !== 'undefined' ? PortShapes : null;
+    const spanFn = PS && PS.portSpan ? (t) => PS.portSpan(t || 'xlr3_in') : () => 0.055;
+    const span = spanFn(p.type);
+    const xnLo = span / 2;
+    const xnHi = 1 - span / 2;
+
+    if (typeof p.xNorm === 'number') {
+      const row =
+        typeof p.row === 'number'
+          ? Math.floor(p.row)
+          : typeof p.gridRow === 'number'
+            ? Math.floor(p.gridRow)
+            : Math.max(0, Math.min(rackU - 1, Math.floor((Number(p.y) || ch / 2) / ch)));
+      const r = Math.max(0, Math.min(rackU - 1, row));
+      let xn = p.xNorm;
+      xn = Math.max(xnLo, Math.min(xnHi, xn));
+      return { x: xn * panelW, y: (r + 0.5) * ch };
+    }
     if (typeof p.gridCol === 'number' && typeof p.gridRow === 'number') {
       const col = Math.max(0, Math.min(cols - 1, Math.floor(p.gridCol)));
       const row = Math.max(0, Math.min(rackU - 1, Math.floor(p.gridRow)));
-      return { x: (col + 0.5) * cw, y: (row + 0.5) * ch };
+      let xn = (col + 0.5) / cols;
+      xn = Math.max(xnLo, Math.min(xnHi, xn));
+      return { x: xn * panelW, y: (row + 0.5) * ch };
     }
     const x = Number(p.x) || 0;
     const y = Number(p.y) || 0;
-    return { x, y };
+    const row = Math.max(0, Math.min(rackU - 1, Math.floor(y / ch)));
+    let xn = x / panelW;
+    xn = Math.max(xnLo, Math.min(xnHi, xn));
+    return { x: xn * panelW, y: (row + 0.5) * ch };
   }
 
-  /** Case grille (col,row) occupée par un port — aligné sur portCenterOnPanel / panel-editor. */
-  function portGridCell(p, rw, panelW, ru) {
-    const cols = PANEL_SLOTS_PER_U[rw] != null ? PANEL_SLOTS_PER_U[rw] : PANEL_SLOTS_PER_U.full;
-    const cw = panelW / cols;
-    const ch = PANEL_U_H;
-    if (typeof p.gridCol === 'number' && typeof p.gridRow === 'number') {
-      return {
-        col: Math.max(0, Math.min(cols - 1, Math.floor(p.gridCol))),
-        row: Math.max(0, Math.min(ru - 1, Math.floor(p.gridRow))),
-      };
-    }
-    const x = Number(p.x) || 0;
-    const y = Number(p.y) || 0;
-    return {
-      col: Math.max(0, Math.min(cols - 1, Math.floor(x / cw))),
-      row: Math.max(0, Math.min(ru - 1, Math.floor(y / ch))),
-    };
-  }
-
-  /** Grille + cadre panneau : montre les emplacements vides (cases sans connecteur). */
-  function rackPanelGridSvg(panelW, panelH, rw, ru, occupied) {
-    const cols = PANEL_SLOTS_PER_U[rw] != null ? PANEL_SLOTS_PER_U[rw] : PANEL_SLOTS_PER_U.full;
-    const cw = panelW / cols;
-    const ch = PANEL_U_H;
+  /** Bandeaux par ligne U (pas de colonnes 1/10) — espace libre horizontal comme dans l’éditeur. */
+  function rackPanelGridSvg(panelW, panelH, ru) {
     let g = '';
     g += `<rect class="rack-panel-face" x="0" y="0" width="${panelW}" height="${panelH}" fill="rgba(0,0,0,.2)" stroke="rgba(255,255,255,.12)" stroke-width="1" pointer-events="none"/>`;
     for (let row = 0; row < ru; row++) {
-      for (let c = 0; c < cols; c++) {
-        const empty = !occupied.has(`${c},${row}`);
-        const fill = empty ? 'rgba(255,255,255,.045)' : 'rgba(0,0,0,.1)';
-        g += `<rect x="${c * cw}" y="${row * ch}" width="${cw}" height="${ch}" fill="${fill}" stroke="rgba(55,60,72,.65)" stroke-width="0.9" stroke-dasharray="3 4" pointer-events="none"/>`;
-      }
+      g += `<rect x="0" y="${row * PANEL_U_H}" width="${panelW}" height="${PANEL_U_H}" fill="rgba(255,255,255,.035)" stroke="rgba(55,60,72,.6)" stroke-width="0.9" stroke-dasharray="4 5" pointer-events="none"/>`;
     }
     for (let u = 1; u < ru; u++) {
       g += `<line x1="0" x2="${panelW}" y1="${u * PANEL_U_H}" y2="${u * PANEL_U_H}" stroke="rgba(90,96,110,.45)" stroke-width="1" pointer-events="none"/>`;
@@ -95,16 +93,11 @@
     const PS = typeof PortShapes !== 'undefined' ? PortShapes : null;
     const rw = slot.rack_width || 'full';
     const panelW = PANEL_W[rw] || PANEL_W.full;
-    const ru = Math.max(1, Math.min(4, Number(slot.rack_u || 1)));
+    const ru = Math.max(1, Math.min(42, Number(slot.rack_u || 1)));
     const panelH = PANEL_U_H * ru;
     const fv = face === 'rear' ? 'rear' : 'front';
 
-    const occupied = new Set();
-    for (const p of ports) {
-      const { col, row } = portGridCell(p, rw, panelW, ru);
-      occupied.add(`${col},${row}`);
-    }
-    const gridSvg = rackPanelGridSvg(panelW, panelH, rw, ru, occupied);
+    const gridSvg = rackPanelGridSvg(panelW, panelH, ru);
 
     if (!ports.length) {
       return `<svg class="rack-slot-face-svg rack-slot-face-svg--with-grid" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="xMidYMid meet">${gridSvg}<text x="${panelW / 2}" y="${panelH / 2}" dominant-baseline="middle" text-anchor="middle" fill="rgba(140,145,160,.92)" pointer-events="none" style="font-family:var(--font),monospace;font-size:12px">Face sans connecteur</text></svg>`;
@@ -113,13 +106,11 @@
       return `<svg class="rack-slot-face-svg rack-slot-face-svg--with-grid" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${panelW} ${panelH}" preserveAspectRatio="xMidYMid meet">${gridSvg}<text x="${panelW / 2}" y="${panelH / 2}" dominant-baseline="middle" text-anchor="middle" fill="rgba(140,145,160,.88)" pointer-events="none" style="font-family:var(--font),monospace;font-size:11px">${ports.length} connecteur(s)</text></svg>`;
     }
 
-    const colsForPorts = PANEL_SLOTS_PER_U[rw] != null ? PANEL_SLOTS_PER_U[rw] : PANEL_SLOTS_PER_U.full;
-    const cellWForPorts = panelW / colsForPorts;
     let body = '';
     for (const p of ports) {
       const { x, y } = portCenterOnPanel(panelW, rw, ru, p);
-      const t = PS.defaultType(p.type || 'xlr_f');
-      const inner = PS.shapeToSvgString(t, p.color || '#5a6a85', cellWForPorts);
+      const t = PS.defaultType(p.type || 'xlr3_in');
+      const inner = PS.shapeToSvgString(t, p.color || '#5a6a85');
       const pid = escAttr(p.id != null ? p.id : '');
       body += `<g class="rack-port-g" transform="translate(${x},${y})" data-slot-id="${slot.id}" data-port-id="${pid}" data-face="${fv}" style="pointer-events:all">${inner}</g>`;
     }
@@ -136,26 +127,60 @@
 
   const CAT_COL = {
     audio: '#f74f4f',
-    light: '#7c4dff',
+    light: '#00c853',
     network: '#2ec97e',
     power: '#f5a623',
     fx: '#4f8ef7',
     custom: '#607d8b',
   };
 
-  /** Vérifie qu’aucun autre slot (même colonne) ne chevauche [slotU, slotU+heightU-1]. */
-  function slotRangeFree(slots, slotU, heightU, slotCol, excludeSlotId) {
-    const lo = slotU;
-    const hi = slotU + heightU - 1;
+  function uRangesOverlap(u1, h1, u2, h2) {
+    const aHi = u1 + h1 - 1;
+    const bHi = u2 + h2 - 1;
+    return Math.max(u1, u2) <= Math.min(aHi, bHi);
+  }
+
+  /** Conflit si chevauchement U + même « colonne » pour half/third, ou full qui occupe toute la ligne. */
+  function placementConflictsWithSlot(slotU, heightU, slotCol, rackWidth, s) {
+    const slo = Number(s.slot_u);
+    const sh = Math.max(1, Number(s.rack_u || 1));
+    if (!uRangesOverlap(slotU, heightU, slo, sh)) return false;
+    const rw = rackWidth || 'full';
+    const sw = s.rack_width || 'full';
+    const sc = Number(s.slot_col || 0);
+    if (rw === 'full' || sw === 'full') return true;
+    return sc === slotCol;
+  }
+
+  function canPlaceDevice(slots, slotU, heightU, slotCol, rackWidth, excludeSlotId) {
+    const rw = rackWidth || 'full';
     for (const s of slots) {
       if (excludeSlotId != null && String(s.id) === String(excludeSlotId)) continue;
-      if (Number(s.slot_col || 0) !== Number(slotCol)) continue;
-      const h = Math.max(1, Number(s.rack_u || 1));
-      const olo = Number(s.slot_u);
-      const ohi = olo + h - 1;
-      if (Math.max(lo, olo) <= Math.min(hi, ohi)) return false;
+      if (placementConflictsWithSlot(slotU, heightU, slotCol, rw, s)) return false;
     }
     return true;
+  }
+
+  function firstFreeThirdCol(slots, slotU, heightU, excludeSlotId) {
+    for (const c of [0, 1, 2]) {
+      if (canPlaceDevice(slots, slotU, heightU, c, 'third', excludeSlotId)) return c;
+    }
+    return null;
+  }
+
+  function firstFreeHalfCol(slots, slotU, heightU, excludeSlotId) {
+    for (const c of [0, 1]) {
+      if (canPlaceDevice(slots, slotU, heightU, c, 'half', excludeSlotId)) return c;
+    }
+    return null;
+  }
+
+  function rackSlotSideLabel(rw, sc) {
+    const w = rw || 'full';
+    const c = Number(sc);
+    if (w === 'half') return c === 1 ? 'droite' : 'gauche';
+    if (w === 'third') return ['gauche', 'milieu', 'droite'][c] || String(c);
+    return '';
   }
 
   function esc(s) {
@@ -180,13 +205,13 @@
   }
 
   const CABLE_TYPE_FR = {
-    xlr3: 'XLR 3 pts',
-    xlr5: 'XLR 5 pts',
+    xlr3: 'XLR 3 pin',
+    xlr5: 'DMX 5 pin (câble)',
     rj45: 'RJ45',
     speakon: 'Speakon',
     jack: 'Jack 6,35',
     bnc: 'BNC',
-    dmx: 'DMX',
+    dmx: 'DMX (lumière)',
     power: 'Alimentation',
     fiber: 'Fibre',
     other: 'Autre',
@@ -380,6 +405,47 @@
       btn.addEventListener('click', finish);
       document.addEventListener('keydown', onKey);
       setTimeout(() => btn.focus(), 10);
+    });
+  }
+
+  /** Modale confirmation (oui / non). Résout true si confirmation. */
+  function showModalConfirm(opts) {
+    const { title, message = '', confirmText = 'OK', cancelText = 'Annuler', danger = false } = opts;
+    return new Promise((resolve) => {
+      const okStyle = danger ? ' style="color:var(--red);border-color:var(--red)"' : '';
+      const html = `
+        <div class="ef-modal" role="dialog" aria-modal="true">
+          <div class="ef-modal-title">${esc(title)}</div>
+          ${message ? `<div class="ef-modal-msg muted">${esc(message)}</div>` : ''}
+          <div class="ef-modal-actions">
+            <button type="button" class="btn" data-act="cancel">${esc(cancelText)}</button>
+            <button type="button" class="btn btn-p" data-act="ok"${okStyle}>${esc(confirmText)}</button>
+          </div>
+        </div>`;
+      const backdrop = document.createElement('div');
+      backdrop.className = 'ef-modal-backdrop';
+      backdrop.innerHTML = html;
+      document.body.appendChild(backdrop);
+      document.body.style.overflow = 'hidden';
+      const finish = (val) => {
+        document.removeEventListener('keydown', onKey);
+        backdrop.remove();
+        document.body.style.overflow = '';
+        resolve(val);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          finish(false);
+        }
+      };
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) finish(false);
+      });
+      backdrop.querySelector('[data-act="cancel"]').addEventListener('click', () => finish(false));
+      backdrop.querySelector('[data-act="ok"]').addEventListener('click', () => finish(true));
+      document.addEventListener('keydown', onKey);
+      setTimeout(() => backdrop.querySelector('[data-act="cancel"]').focus(), 10);
     });
   }
 
@@ -620,7 +686,7 @@
   function miniRackFromProject(p) {
     const racks = p.racks || [];
     const segs = [];
-    const colors = ['#f5a623', '#4f8ef7', '#f74f4f', '#7c4dff', '#2e3140'];
+    const colors = ['#f5a623', '#4f8ef7', '#f74f4f', '#00c853', '#2e3140'];
     if (!racks.length) {
       return '<div class="mini-rack"><div class="mini-rack-seg" style="width:100%;background:#2e3140"></div></div>';
     }
@@ -764,58 +830,176 @@
     );
   }
 
+  /** Hauteur d’un bloc occupant h U : même empilement que h lignes vides (PANEL_U_H + marge 2px par ligne). */
+  function rackRowMinHeightPx(h) {
+    const u = Math.max(1, Math.min(42, Number(h) || 1));
+    return u * RACK_LIST_U_STRIDE_PX;
+  }
+
+  function rackRowMinHeightStyle(h) {
+    const px = rackRowMinHeightPx(h);
+    return ` style="min-height:${px}px;height:${px}px;max-height:${px}px;flex-shrink:0;box-sizing:border-box"`;
+  }
+
+  function rackPairHalfCellHtml(s, rid, h, fv) {
+    const col = CAT_COL[s.category] || '#4f8ef7';
+    const faceStrip = buildRackFacePreview(s, fv);
+    const stripCls = h >= 2 ? ' slot-face-strip--2u' : '';
+    const cls2 = h >= 2 ? ' slot-2u' : '';
+    const dragAttr = state.connectionMode ? 'false' : 'true';
+    return `<div class="rack-slot-row rack-slot-row--half" data-rack-id="${rid}" draggable="${dragAttr}" data-slot-id="${s.id}" title="Glisser pour déplacer">
+      <div class="slot-body-r occ${cls2} slot-body-with-face slot-body--ports-only" style="border-color:${col}55;background:${col}10;border-left:3px solid ${col}">
+        <div class="slot-face-strip${stripCls}">${faceStrip}</div>
+      </div>
+    </div>`;
+  }
+
   function rackRowsVisual(rack, slots, face) {
     const rid = rack.id;
     const fv = face === 'rear' ? 'rear' : 'front';
     const size = Number(rack.size_u || 12);
-    const sorted = [...slots].sort((a, b) => Number(a.slot_u) - Number(b.slot_u));
+    const sorted = [...slots].sort((a, b) => {
+      const du = Number(a.slot_u) - Number(b.slot_u);
+      if (du !== 0) return du;
+      return Number(a.slot_col || 0) - Number(b.slot_col || 0);
+    });
     const rows = [];
     let u = 1;
     while (u <= size) {
-      const slot = sorted.find((s) => Number(s.slot_u) === u);
-      if (!slot) {
-        rows.push({ kind: 'empty', u });
+      const starters = sorted.filter((s) => Number(s.slot_u) === u);
+      if (starters.length > 0) {
+        const h = Math.max(
+          ...starters.map((s) => Math.min(Math.max(1, Number(s.rack_u || 1)), size - u + 1))
+        );
+        rows.push({ kind: 'occupied', u, slots: starters, h });
+        u += h;
+        continue;
+      }
+      const covering = sorted.find((s) => {
+        const su = Number(s.slot_u);
+        const sh = Math.max(1, Number(s.rack_u || 1));
+        return su < u && u < su + sh;
+      });
+      if (covering) {
         u++;
         continue;
       }
-      const h = Math.min(Number(slot.rack_u || 1), size - u + 1);
-      rows.push({ kind: 'slot', slot, h });
-      u += h;
+      rows.push({ kind: 'empty', u });
+      u++;
     }
+
     return rows
       .map((row) => {
         if (row.kind === 'empty') {
           return `<div class="rack-slot-r rack-slot-r--split" data-rack-id="${rid}">
             <div class="rack-slot-graphic">
               <div class="slot-num-r">${row.u}</div>
-              <div class="slot-body-r rack-drop-zone" data-drop-u="${row.u}" data-rack-id="${rid}"><span style="font-size:11px;color:#1e2228">— vide —</span></div>
+              <div class="slot-body-row-inner">
+                <div class="slot-body-r rack-drop-zone" data-drop-u="${row.u}" data-drop-col="0" data-rack-id="${rid}"><span style="font-size:10px;color:#1e2228">gauche</span></div>
+                <div class="slot-body-r rack-drop-zone" data-drop-u="${row.u}" data-drop-col="1" data-rack-id="${rid}"><span style="font-size:10px;color:#1e2228">droite</span></div>
+              </div>
             </div>
             <div class="rack-slot-outside-name rack-slot-outside-name--empty"></div>
           </div>`;
         }
-        const s = row.slot;
-        const col = CAT_COL[s.category] || '#4f8ef7';
+        const starters = row.slots;
         const h = row.h;
-        const cls = h >= 2 ? ' slot-2u' : '';
-        const faceStrip = buildRackFacePreview(s, fv);
-        const stripCls = h >= 2 ? ' slot-face-strip--2u' : '';
+        const u0 = row.u;
         const num =
           h >= 2
-            ? `<div class="slot-num-r" style="height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:2px 0"><span>${row.slot.slot_u}</span><span>${Number(row.slot.slot_u) + h - 1}</span></div>`
-            : `<div class="slot-num-r">${s.slot_u}</div>`;
-        const nm = esc(s.custom_name || s.device_name);
-        const dragAttr = state.connectionMode ? 'false' : 'true';
-        return `<div class="rack-slot-r${cls} rack-slot-r--split rack-slot-row" data-rack-id="${rid}" draggable="${dragAttr}" data-slot-id="${s.id}" title="Glisser vers une ligne vide pour déplacer">
+            ? `<div class="slot-num-r" style="height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:2px 0"><span>${u0}</span><span>${u0 + h - 1}</span></div>`
+            : `<div class="slot-num-r">${u0}</div>`;
+
+        if (starters.length === 1) {
+          const s = starters[0];
+          const rw = s.rack_width || 'full';
+          const sc = Number(s.slot_col || 0);
+          const col = CAT_COL[s.category] || '#4f8ef7';
+          const faceStrip = buildRackFacePreview(s, fv);
+          const stripCls = h >= 2 ? ' slot-face-strip--2u' : '';
+          const cls = h >= 2 ? ' slot-2u' : '';
+          const nm = esc(s.custom_name || s.device_name);
+          const dragAttr = state.connectionMode ? 'false' : 'true';
+          const side = rackSlotSideLabel(rw, sc);
+          const meta = `${h}U · ${esc(rw)}${side ? ' · ' + esc(side) : ''} · ${esc(s.category)}`;
+
+          if (rw === 'full') {
+            return `<div class="rack-slot-r rack-slot-r--split rack-slot-row" data-rack-id="${rid}" draggable="${dragAttr}" data-slot-id="${s.id}" title="Glisser vers une ligne vide pour déplacer"${rackRowMinHeightStyle(h)}>
+              <div class="rack-slot-graphic">
+                ${num}
+                <div class="slot-body-r occ${cls} slot-body-with-face slot-body--ports-only" style="border-color:${col}55;background:${col}10;border-left:3px solid ${col}">
+                  <div class="slot-face-strip${stripCls}">${faceStrip}</div>
+                </div>
+              </div>
+              <div class="rack-slot-outside-name">
+                <div class="rack-slot-outside-title" style="color:${col}">${nm}</div>
+                <div class="rack-slot-outside-meta">${meta}</div>
+              </div>
+            </div>`;
+          }
+
+          if (rw === 'third') {
+            const zones = [0, 1, 2].map((ci) => {
+              if (ci === sc) {
+                return `<div class="rack-slot-row rack-slot-row--half rack-slot-row--third" data-rack-id="${rid}" draggable="${dragAttr}" data-slot-id="${s.id}" title="Glisser pour déplacer">
+                  <div class="slot-body-r occ${cls} slot-body-with-face slot-body--ports-only" style="border-color:${col}55;background:${col}10;border-left:3px solid ${col}">
+                    <div class="slot-face-strip${stripCls}">${faceStrip}</div>
+                  </div>
+                </div>`;
+              }
+              return `<div class="slot-body-r rack-drop-zone" data-drop-u="${u0}" data-drop-col="${ci}" data-rack-id="${rid}"><span style="font-size:9px;color:#1e2228">·</span></div>`;
+            });
+            return `<div class="rack-slot-r rack-slot-r--split" data-rack-id="${rid}"${rackRowMinHeightStyle(h)}>
+              <div class="rack-slot-graphic">
+                ${num}
+                <div class="slot-body-row-inner slot-body-row-inner--third">${zones.join('')}</div>
+              </div>
+              <div class="rack-slot-outside-name">
+                <div class="rack-slot-outside-title" style="color:${col}">${nm}</div>
+                <div class="rack-slot-outside-meta">${meta}</div>
+              </div>
+            </div>`;
+          }
+
+          const inner =
+            sc === 0
+              ? `<div class="slot-body-row-inner">
+                ${rackPairHalfCellHtml(s, rid, h, fv)}
+                <div class="slot-body-r rack-drop-zone" data-drop-u="${u0}" data-drop-col="1" data-rack-id="${rid}"><span style="font-size:10px;color:#1e2228">vide</span></div>
+              </div>`
+              : `<div class="slot-body-row-inner">
+                <div class="slot-body-r rack-drop-zone" data-drop-u="${u0}" data-drop-col="0" data-rack-id="${rid}"><span style="font-size:10px;color:#1e2228">vide</span></div>
+                ${rackPairHalfCellHtml(s, rid, h, fv)}
+              </div>`;
+
+          return `<div class="rack-slot-r rack-slot-r--split" data-rack-id="${rid}"${rackRowMinHeightStyle(h)}>
+            <div class="rack-slot-graphic">
+              ${num}
+              ${inner}
+            </div>
+            <div class="rack-slot-outside-name">
+              <div class="rack-slot-outside-title" style="color:${col}">${nm}</div>
+              <div class="rack-slot-outside-meta">${meta}</div>
+            </div>
+          </div>`;
+        }
+
+        const byCol = [...starters].sort((a, b) => Number(a.slot_col || 0) - Number(b.slot_col || 0));
+        const blocks = byCol.map((s) => rackPairHalfCellHtml(s, rid, h, fv)).join('');
+        return `<div class="rack-slot-r rack-slot-r--split rack-slot-r--pair" data-rack-id="${rid}"${rackRowMinHeightStyle(h)}>
           <div class="rack-slot-graphic">
             ${num}
-            <div class="slot-body-r occ${cls} slot-body-with-face slot-body--ports-only" style="border-color:${col}55;background:${col}10;border-left:3px solid ${col}">
-              <div class="slot-face-strip${stripCls}">${faceStrip}</div>
-            </div>
+            <div class="slot-body-row-inner">${blocks}</div>
           </div>
-          <div class="rack-slot-outside-name">
-            <div class="rack-slot-outside-title" style="color:${col}">${nm}</div>
-            <div class="rack-slot-outside-meta">${h}U · ${esc(s.rack_width || 'full')} · ${esc(s.category)}</div>
-          </div>
+          <div class="rack-slot-outside-name rack-slot-outside-name--pair">${byCol
+            .map((s) => {
+              const col = CAT_COL[s.category] || '#4f8ef7';
+              const nm = esc(s.custom_name || s.device_name);
+              const side = rackSlotSideLabel(s.rack_width, Number(s.slot_col || 0));
+              const meta = `${h}U · ${esc(s.rack_width || 'full')}${side ? ' · ' + esc(side) : ''}`;
+              return `<div class="rack-pair-name-col"><div class="rack-slot-outside-title" style="color:${col}">${nm}</div><div class="rack-slot-outside-meta">${meta}</div></div>`;
+            })
+            .join('')}</div>
         </div>`;
       })
       .join('');
@@ -968,11 +1152,30 @@
           <div style="height:3px;border-radius:2px;background:${col};margin-bottom:10px"></div>
           <div class="detail-name">${esc(selSlot.custom_name || selSlot.device_name)}</div>
           <div class="detail-sub">${selSlot.rack_u}U · ${esc(selSlot.rack_width)} · ${esc(selSlot.category)}</div>
+          ${
+            selSlot.rack_width === 'half'
+              ? `<div class="field-label" style="margin-top:8px">Côté (demi-largeur)</div>
+          <select class="ef-select" id="slot-half-side" style="margin-top:0;width:100%">
+            <option value="0" ${Number(selSlot.slot_col || 0) === 0 ? 'selected' : ''}>Gauche</option>
+            <option value="1" ${Number(selSlot.slot_col || 0) === 1 ? 'selected' : ''}>Droite</option>
+          </select>
+          <p style="margin-top:8px"><button type="button" class="btn" id="btn-save-slot-side">Appliquer côté</button></p>`
+              : selSlot.rack_width === 'third'
+                ? `<div class="field-label" style="margin-top:8px">Colonne (tiers)</div>
+          <select class="ef-select" id="slot-third-col" style="margin-top:0;width:100%">
+            <option value="0" ${Number(selSlot.slot_col || 0) === 0 ? 'selected' : ''}>Gauche</option>
+            <option value="1" ${Number(selSlot.slot_col || 0) === 1 ? 'selected' : ''}>Milieu</option>
+            <option value="2" ${Number(selSlot.slot_col || 0) === 2 ? 'selected' : ''}>Droite</option>
+          </select>
+          <p style="margin-top:8px"><button type="button" class="btn" id="btn-save-slot-side">Appliquer colonne</button></p>`
+                : ''
+          }
           <div class="field-label">port_labels (JSON)</div>
           <textarea class="ef-ta" id="slot-pl-json" rows="3" placeholder='{"p1":"Lyre jardin"}'>${esc(selSlot.port_labels || '')}</textarea>
           <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
             <button type="button" class="btn btn-p" id="btn-save-pl">Enregistrer labels</button>
             <button type="button" class="btn" id="btn-edit-face">Face panel ↗</button>
+            <button type="button" class="btn" id="btn-delete-slot" style="color:var(--red);border-color:var(--red)">Supprimer</button>
             <button type="button" class="btn" id="btn-slots-rack" style="color:var(--red);border-color:var(--red)">Slots détail</button>
           </div>
         </div>`
@@ -1014,7 +1217,7 @@
               <span class="muted" style="font-size:11px;line-height:1.2">${connMode ? 'Cliquez sur un port source puis sur un port destination : une fenêtre permet d’indiquer le type de câble, la longueur et les repères (voir aussi la Patch list).' : ''}</span>
             </div>` : ''}
             ${rackHtml}
-            <div class="muted" style="font-size:11px;margin-top:6px;max-width:520px;line-height:1.35">Déplacer : glisser une ligne vers une ligne <strong>vide</strong> du <strong>même rack</strong> (même hauteur U requise). Ajouter : glisser depuis la bibliothèque. Le nom est affiché à droite du schéma.</div>
+            <div class="muted" style="font-size:11px;margin-top:6px;max-width:520px;line-height:1.35">Déplacer : glisser un équipement vers une zone <strong>vide</strong> du <strong>même rack</strong> (même hauteur U). Les modules <strong>half</strong> : gauche ou droite sur la même ligne U. Ajouter : glisser depuis la bibliothèque.</div>
             <div class="muted"><span style="color:var(--text);font-weight:500">${usedU}</span> U équipés (projet) · <span style="color:var(--text);font-weight:500">${totalW}W</span>${rack ? ` · <span style="color:var(--muted)">Rack sélectionné « ${esc(rack.name)} » : ${usedInRack}/${rack.size_u}U</span>` : ''}</div>
           </div>
           <div class="rb-panel">
@@ -1107,11 +1310,39 @@
           cancelText: 'Annuler',
         });
         if (su == null) return;
+        const did = Number(el.getAttribute('data-did'));
+        const dev = devices.find((d) => String(d.id) === String(did));
+        if (!dev) return;
+        const h = Math.max(1, Number(dev.rack_u || 1));
+        const rw = dev.rack_width || 'full';
+        const slotsHere = rack.slots || [];
+        let slotCol = 0;
+        if (rw === 'half') {
+          const fc = firstFreeHalfCol(slotsHere, Number(su), h, null);
+          if (fc == null) {
+            await showModalAlert({
+              title: 'Emplacement occupé',
+              message: 'Pas de place libre sur cette ligne pour un demi-module (gauche et droite déjà prises).',
+            });
+            return;
+          }
+          slotCol = fc;
+        } else if (rw === 'third') {
+          const fc = firstFreeThirdCol(slotsHere, Number(su), h, null);
+          if (fc == null) {
+            await showModalAlert({
+              title: 'Emplacement occupé',
+              message: 'Pas de place libre sur cette ligne pour un module tiers.',
+            });
+            return;
+          }
+          slotCol = fc;
+        }
         await api.post('/api/ef/slots', {
           rack_id: rack.id,
-          device_template_id: Number(el.getAttribute('data-did')),
+          device_template_id: did,
           slot_u: Number(su),
-          slot_col: 0,
+          slot_col: slotCol,
         });
         viewProjectRack(projectId);
       });
@@ -1144,6 +1375,7 @@
         const u = Number(zone.getAttribute('data-drop-u'));
         const sizeU = Number(targetRack.size_u || 12);
         if (!u || u < 1 || u > sizeU) return;
+        const zoneCol = Number(zone.getAttribute('data-drop-col') ?? 0);
 
         if (payload.type === 'template') {
           const dev = devices.find((d) => String(d.id) === String(payload.deviceId));
@@ -1156,10 +1388,29 @@
             });
             return;
           }
-          if (!slotRangeFree(slots, u, h, 0, null)) {
+          const rw = dev.rack_width || 'full';
+          let slotCol = zoneCol;
+          if (rw === 'full') {
+            slotCol = 0;
+          } else if (rw === 'third') {
+            if (canPlaceDevice(slots, u, h, zoneCol, 'third', null)) {
+              slotCol = zoneCol;
+            } else {
+              const fc = firstFreeThirdCol(slots, u, h, null);
+              if (fc == null) {
+                await showModalAlert({
+                  title: 'Emplacement occupé',
+                  message: 'Pas de place libre sur cette ligne pour un module tiers.',
+                });
+                return;
+              }
+              slotCol = fc;
+            }
+          }
+          if (!canPlaceDevice(slots, u, h, slotCol, rw, null)) {
             await showModalAlert({
               title: 'Emplacement occupé',
-              message: 'Pas assez d’espace libre à cet emplacement.',
+              message: 'Cette position est déjà prise (pleine largeur ou même colonne).',
             });
             return;
           }
@@ -1168,7 +1419,7 @@
               rack_id: targetRack.id,
               device_template_id: payload.deviceId,
               slot_u: u,
-              slot_col: 0,
+              slot_col: slotCol,
             });
           } catch (err) {
             await showModalAlert({ title: 'Erreur', message: err.message || 'Erreur' });
@@ -1196,18 +1447,37 @@
             });
             return;
           }
-          if (Number(slot.slot_u) === u && Number(slot.slot_col || 0) === 0) {
-            return;
+          const rw = slot.rack_width || 'full';
+          let newCol = zoneCol;
+          if (rw === 'full') {
+            newCol = 0;
+          } else if (rw === 'third') {
+            if (canPlaceDevice(slots, u, h, zoneCol, 'third', slot.id)) {
+              newCol = zoneCol;
+            } else {
+              const fc = firstFreeThirdCol(slots, u, h, slot.id);
+              if (fc == null) {
+                await showModalAlert({
+                  title: 'Emplacement occupé',
+                  message: 'Pas de place libre sur cette ligne pour un module tiers.',
+                });
+                return;
+              }
+              newCol = fc;
+            }
           }
-          if (!slotRangeFree(slots, u, h, 0, slot.id)) {
+          if (!canPlaceDevice(slots, u, h, newCol, rw, slot.id)) {
             await showModalAlert({
               title: 'Emplacement occupé',
-              message: 'Pas assez d’espace libre à cet emplacement.',
+              message: 'Cette position est déjà prise.',
             });
             return;
           }
+          if (Number(slot.slot_u) === u && Number(slot.slot_col || 0) === newCol) {
+            return;
+          }
           try {
-            await api.put('/api/ef/slots/' + slot.id, { slot_u: u, slot_col: 0 });
+            await api.put('/api/ef/slots/' + slot.id, { slot_u: u, slot_col: newCol });
           } catch (err) {
             await showModalAlert({ title: 'Erreur', message: err.message || 'Erreur' });
             return;
@@ -1238,6 +1508,22 @@
     });
     $('#btn-proj-settings')?.addEventListener('click', () => nav('#/project/' + projectId + '/settings'));
     $('#tab-patch-short')?.addEventListener('click', () => nav('#/project/' + projectId + '/patch'));
+    $('#btn-save-slot-side')?.addEventListener('click', async () => {
+      if (!selSlot) return;
+      const halfEl = $('#slot-half-side');
+      const thirdEl = $('#slot-third-col');
+      const col = Number((halfEl || thirdEl)?.value ?? 0);
+      if (col === Number(selSlot.slot_col || 0)) return;
+      try {
+        await api.put('/api/ef/slots/' + selSlot.id, {
+          slot_u: Number(selSlot.slot_u),
+          slot_col: col,
+        });
+        viewProjectRack(projectId);
+      } catch (err) {
+        await showModalAlert({ title: 'Erreur', message: err.message || 'Erreur' });
+      }
+    });
     $('#btn-save-pl')?.addEventListener('click', async () => {
       if (!selSlot) return;
       const raw = $('#slot-pl-json').value.trim();
@@ -1255,6 +1541,28 @@
     });
     $('#btn-edit-face')?.addEventListener('click', () => {
       if (selSlot) nav('#/device/' + selSlot.device_template_id);
+    });
+    $('#btn-delete-slot')?.addEventListener('click', async () => {
+      if (!selSlot) return;
+      const label = selSlot.custom_name || selSlot.device_name || 'cet équipement';
+      const ok = await showModalConfirm({
+        title: 'Supprimer l’équipement',
+        message:
+          'Retirer « ' +
+          label +
+          ' » du rack ? Les connexions câblées impliquant cet équipement seront aussi supprimées.',
+        confirmText: 'Supprimer',
+        cancelText: 'Annuler',
+        danger: true,
+      });
+      if (!ok) return;
+      try {
+        await api.delete('/api/ef/slots/' + selSlot.id);
+        state.selectedSlotId = null;
+        viewProjectRack(projectId);
+      } catch (err) {
+        await showModalAlert({ title: 'Erreur', message: err.message || 'Erreur' });
+      }
     });
     $('#btn-slots-rack')?.addEventListener('click', () => {
       if (rack) nav('#/project/' + projectId + '/rack/' + rack.id + '/slots');
@@ -1350,7 +1658,8 @@
     }
 
     function sigColor(sig) {
-      if (sig === 'dmx' || sig === 'audio_digital') return '#7c4dff';
+      if (sig === 'dmx') return '#00c853';
+      if (sig === 'audio_digital') return '#7c4dff';
       if (sig === 'ethernet') return '#4f8ef7';
       if (sig === 'power') return '#f5a623';
       if (sig === 'audio_analog') return '#f74f4f';
@@ -1576,9 +1885,10 @@
     const rows = slots
       .map(
         (s) =>
-          `<tr data-sid="${s.id}"><td>${s.slot_u}</td><td>${esc(s.device_name)}</td>
+          `<tr data-sid="${s.id}"><td>${s.slot_u}</td><td>${Number(s.slot_col || 0)}</td><td>${esc(s.device_name)}</td>
           <td><input type="text" class="ef-inp port-labels" data-id="${s.id}" value="${esc(s.port_labels || '')}" style="max-width:280px" /></td>
-          <td><button type="button" class="btn" data-save="${s.id}">Sauver</button></td></tr>`
+          <td style="white-space:nowrap"><button type="button" class="btn" data-save="${s.id}">Sauver</button>
+          <button type="button" class="btn" data-del-slot="${s.id}" style="color:var(--red);border-color:var(--red);margin-left:6px">Supprimer</button></td></tr>`
       )
       .join('');
     mountShell({
@@ -1592,7 +1902,7 @@
             <button type="submit" class="btn btn-p">Placer</button>
           </form>
           <table class="patch-table" style="display:block;overflow:auto">
-            <thead><tr class="pt-head" style="display:table;width:100%"><th class="pt-col">U</th><th class="pt-col">Équipement</th><th class="pt-col">port_labels JSON</th><th></th></tr></thead>
+            <thead><tr class="pt-head" style="display:table;width:100%"><th class="pt-col">U</th><th class="pt-col">col</th><th class="pt-col">Équipement</th><th class="pt-col">port_labels JSON</th><th class="pt-col">Actions</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
@@ -1627,6 +1937,30 @@
           }
         }
         await api.put('/api/ef/slots/' + sid, { port_labels: pl });
+      })
+    );
+    $$('button[data-del-slot]').forEach((b) =>
+      b.addEventListener('click', async () => {
+        const sid = b.getAttribute('data-del-slot');
+        const row = slots.find((x) => String(x.id) === String(sid));
+        const label = row ? row.custom_name || row.device_name || 'cet équipement' : 'cet équipement';
+        const ok = await showModalConfirm({
+          title: 'Supprimer l’équipement',
+          message:
+            'Retirer « ' +
+            label +
+            ' » du rack ? Les connexions câblées impliquant cet équipement seront aussi supprimées.',
+          confirmText: 'Supprimer',
+          cancelText: 'Annuler',
+          danger: true,
+        });
+        if (!ok) return;
+        try {
+          await api.delete('/api/ef/slots/' + sid);
+          viewSlots(rackId, projectId);
+        } catch (err) {
+          await showModalAlert({ title: 'Erreur', message: err.message || 'Erreur' });
+        }
       })
     );
   }
@@ -1714,7 +2048,7 @@
             <div id="edit-rear"></div>
             <button type="button" class="btn btn-p" id="btn-save-rear">Enregistrer face arrière</button>
           </div>
-          <div class="export-config"><div class="ec-title">Aide</div><p class="muted" style="font-size:12px">Clic sur une case vide pour placer · <strong>double-clic</strong> sur un connecteur pour le supprimer · ou <strong>Alt + clic</strong> si le double-clic ne marche pas · glisser pour déplacer. Faces pouvant rester vides — enregistrez chaque face.</p></div>
+          <div class="export-config"><div class="ec-title">Aide</div><p class="muted" style="font-size:12px">Clic sur une <strong>ligne U</strong> pour placer le connecteur à cet endroit horizontal · <strong>glisser</strong> pour le déplacer le long du panneau · <strong>double-clic</strong> ou <strong>Alt + clic</strong> pour supprimer. Faces pouvant rester vides — enregistrez chaque face.</p></div>
         </div>
       </div>`,
       navActive: 2,
@@ -1761,108 +2095,6 @@
     });
   }
 
-  /** Pour PDF : index slotId|portId -> lignes de liaison patch. */
-  function buildPdfConnBySlotPort(connections) {
-    const m = Object.create(null);
-    function add(sid, pid, text) {
-      const k = `${String(sid)}|${String(pid)}`;
-      if (!m[k]) m[k] = [];
-      m[k].push(text);
-    }
-    for (const c of connections || []) {
-      const len =
-        c.cable_length_m != null && c.cable_length_m !== '' ? ` ${String(c.cable_length_m)}m` : '';
-      const ct = cableTypeFr(c.cable_type);
-      const cpart = ct && ct !== '—' ? `, ${ct}` : '';
-      const lbl = c.cable_label ? `, ${String(c.cable_label)}` : '';
-      add(
-        c.src_slot_id,
-        c.src_port_id,
-        `-> ${c.dst_rack_name || '?'} U${c.dst_slot_u} ${c.dst_device_name || ''} [${c.dst_label_display || c.dst_port_id}]${cpart}${len}${lbl}`
-      );
-      add(
-        c.dst_slot_id,
-        c.dst_port_id,
-        `<- ${c.src_rack_name || '?'} U${c.src_slot_u} ${c.src_device_name || ''} [${c.src_label_display || c.src_port_id}]${cpart}${len}${lbl}`
-      );
-    }
-    return m;
-  }
-
-  function pdfPortCaptionLine(slot, p, faceLabel) {
-    const id = p.id != null ? String(p.id) : '';
-    const pl = parsePortLabelsMap(slot.port_labels);
-    const biz = pl[id] ? String(pl[id]) : '';
-    const typ = p.type ? String(p.type) : '';
-    const bits = [id || '?'];
-    if (typ) bits.push(`type ${typ}`);
-    if (biz) bits.push(`libelle: ${biz}`);
-    bits.push(`(${faceLabel})`);
-    return bits.join(' | ');
-  }
-
-  /** Hauteur mm consommée par une liste de lignes après decoupe a la largeur colW. */
-  function pdfWrappedBlockHeight(doc, lines, colW, lineH) {
-    let h = 0;
-    for (const raw of lines) {
-      const s = raw == null ? '' : String(raw);
-      const parts = doc.splitTextToSize(s, colW);
-      h += Math.max(1, parts.length) * lineH;
-    }
-    return h;
-  }
-
-  /** Ecrit des lignes avec retour a la ligne, retourne y apres le bloc. */
-  function pdfEmitWrappedLines(doc, lines, x, y, colW, lineH, pageBreak) {
-    for (const raw of lines) {
-      const s = raw == null ? '' : String(raw);
-      const parts = doc.splitTextToSize(s, colW);
-      for (const p of parts) {
-        if (y > 272) {
-          pageBreak();
-          y = 20;
-        }
-        doc.text(p, x, y);
-        y += lineH;
-      }
-    }
-    return y;
-  }
-
-  /** Lignes texte pour un slot (une colonne PDF). */
-  function pdfLinesForSlot(s, connByPort) {
-    const out = [];
-    const h = Math.max(1, Number(s.rack_u || 1));
-    const uHi = Number(s.slot_u) + h - 1;
-    const uLab = h > 1 ? `U${s.slot_u}-U${uHi} (${h}U)` : `U${s.slot_u}`;
-    const dev = (s.custom_name || s.device_name || '').trim();
-    const mod =
-      s.device_name && s.custom_name && s.custom_name !== s.device_name ? ` modele: ${s.device_name}` : '';
-    const pwr = s.power_w ? ` ${s.power_w}W` : '';
-    out.push(`-- ${uLab} ${dev}${mod}${pwr} | ${s.category || ''}`);
-    const faces = [
-      { label: 'avant', raw: s.panel_front_ports },
-      { label: 'arriere', raw: s.panel_rear_ports },
-    ];
-    for (const { label, raw } of faces) {
-      out.push(`  Face ${label}:`);
-      const ports = parsePanelPorts(raw);
-      if (!ports.length) {
-        out.push('    (pas de connecteur)');
-        continue;
-      }
-      for (const p of ports) {
-        const cap = pdfPortCaptionLine(s, p, label);
-        out.push(`    * ${cap}`);
-        const k = `${String(s.id)}|${String(p.id)}`;
-        for (const lk of connByPort[k] || []) {
-          out.push(`       ${lk}`);
-        }
-      }
-    }
-    return out;
-  }
-
   async function buildPdf(exp, mods, theme) {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
@@ -1891,82 +2123,20 @@
         doc.rect(0, 0, 210, 297, 'F');
         doc.setTextColor(...tx);
       }
-      const connByPort = buildPdfConnBySlotPort(exp.connections);
-      const ensureRackPage = () => {
-        if (y <= 272) return;
-        doc.addPage();
-        y = 20;
-        if (theme === 'dark') {
-          doc.setFillColor(...fg);
-          doc.rect(0, 0, 210, 297, 'F');
-          doc.setTextColor(...tx);
-        }
-      };
-      doc.setFontSize(11);
-      line('Plans racks — schema U, ports et liaisons', 20, y);
-      y += 6;
-      doc.setFontSize(8.5);
-      line(
-        'Ordre des U: du haut vers le bas du projet (grand U en tete). U1 souvent en bas physique. Ports: id, type, libelle projet (port_labels). Liaisons issues du patch.',
-        20,
-        y
-      );
-      y += 8;
-      doc.setFontSize(10);
+      line('Plans racks', 20, y);
+      y += 10;
       for (const r of exp.racks || []) {
-        ensureRackPage();
-        line(`=== ${r.name} — ${r.size_u}U ===`, 20, y);
-        y += 6;
-        const slots = [...(r.slots || [])].sort((a, b) => Number(b.slot_u) - Number(a.slot_u));
-        if (!slots.length) {
-          line('  (aucun equipement)', 22, y);
+        line(`${r.name} — ${r.size_u}U`, 20, y);
+        y += 7;
+        for (const s of r.slots || []) {
+          line(`  U${s.slot_u} ${s.device_name}`, 22, y);
           y += 6;
-        }
-        for (const s of slots) {
-          ensureRackPage();
-          const h = Math.max(1, Number(s.rack_u || 1));
-          const uHi = Number(s.slot_u) + h - 1;
-          const uLab = h > 1 ? `U${s.slot_u}-U${uHi} (${h}U)` : `U${s.slot_u}`;
-          const dev = (s.custom_name || s.device_name || '').trim();
-          const mod = s.device_name && s.custom_name && s.custom_name !== s.device_name ? ` modele: ${s.device_name}` : '';
-          const pwr = s.power_w ? ` ${s.power_w}W` : '';
-          line(`-- ${uLab} ${dev}${mod}${pwr} | ${s.category || ''}`, 20, y);
-          y += 5;
-          const faces = [
-            { label: 'avant', raw: s.panel_front_ports },
-            { label: 'arriere', raw: s.panel_rear_ports },
-          ];
-          for (const { label, raw } of faces) {
-            ensureRackPage();
-            line(`  Face ${label}:`, 22, y);
-            y += 4.5;
-            const ports = parsePanelPorts(raw);
-            if (!ports.length) {
-              line('    (pas de connecteur sur ce gabarit)', 24, y);
-              y += 4.5;
-              continue;
-            }
-            for (const p of ports) {
-              ensureRackPage();
-              const cap = pdfPortCaptionLine(s, p, label);
-              const capTrim = cap.length > 105 ? `${cap.slice(0, 102)}...` : cap;
-              line(`    * ${capTrim}`, 24, y);
-              y += 4;
-              const k = `${String(s.id)}|${String(p.id)}`;
-              const links = connByPort[k] || [];
-              for (const lk of links) {
-                ensureRackPage();
-                const t = lk.length > 100 ? `${lk.slice(0, 97)}...` : lk;
-                line(`       ${t}`, 26, y);
-                y += 4;
-              }
-            }
+          if (y > 270) {
+            doc.addPage();
+            y = 20;
           }
-          y += 3;
         }
-        y += 4;
       }
-      doc.setFontSize(10);
     }
     if (mods.patch) {
       doc.addPage();
